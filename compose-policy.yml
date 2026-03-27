@@ -1,0 +1,49 @@
+deny_privileged: true
+deny_docker_sock: true
+deny_pid_host: true
+deny_cgroup_host: true
+deny_userns_host: true
+
+warn_network_host: true
+warn_ipc_host: true
+warn_root_user: true
+warn_cap_add: true
+warn_security_opt: true
+
+allow_gpu_devices:
+  - /dev/nvidiactl
+  - /dev/nvidia-uvm
+  - /dev/nvidia-uvm-tools
+  - /dev/nvidia-modeset
+  - /dev/dri
+
+allow_gpu_device_regex:
+  - '^/dev/nvidia\d+$'
+  - '^/dev/dri(/.*)?$'
+
+deny_bind_prefixes:
+  - /
+  - /etc
+  - /root
+  - /boot
+  - /proc
+  - /sys
+  - /var/run
+  - /run
+
+deny_exact_mounts:
+  - /var/run/docker.sock
+
+allowed_bind_prefixes:
+  - /home
+  - /tmp
+  - /var/tmp
+  - /data
+  - /datasets
+  - /models
+  - /workspace
+  - /srv
+  - /mnt
+  - /opt/projects
+
+warn_on_bind_outside_allowed_prefixes: true
