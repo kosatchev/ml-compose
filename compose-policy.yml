@@ -9,32 +9,33 @@ warn_ipc_host: true
 warn_root_user: true
 warn_cap_add: true
 warn_security_opt: true
+warn_on_bind_outside_allowed_prefixes: true
 
-allow_gpu_devices:
-  - /dev/nvidiactl
-  - /dev/nvidia-uvm
-  - /dev/nvidia-uvm-tools
-  - /dev/nvidia-modeset
-  - /dev/dri
-
-allow_gpu_device_regex:
-  - '^/dev/nvidia\d+$'
-  - '^/dev/dri(/.*)?$'
-
-deny_bind_prefixes:
+deny_sensitive_mounts:
   - /
   - /etc
   - /root
   - /boot
   - /proc
   - /sys
-  - /var/run
   - /run
-
-deny_exact_mounts:
+  - /var/run
   - /var/run/docker.sock
 
-allowed_bind_prefixes:
+allow_device_exact:
+  - /dev/nvidiactl
+  - /dev/nvidia-uvm
+  - /dev/nvidia-uvm-tools
+  - /dev/nvidia-modeset
+  - /dev/kfd
+  - /dev/dri
+
+allow_device_regex:
+  - '^/dev/nvidia\d+$'
+  - '^/dev/kfd$'
+  - '^/dev/dri(/.*)?$'
+
+allowed_abs_mount_prefixes:
   - /home
   - /tmp
   - /var/tmp
@@ -46,4 +47,4 @@ allowed_bind_prefixes:
   - /mnt
   - /opt/projects
 
-warn_on_bind_outside_allowed_prefixes: true
+forbid_other_user_homes: true
