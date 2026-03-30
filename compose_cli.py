@@ -29,12 +29,14 @@ class ComposeCliArgs:
     compose_files: list[str]
     compose_global_args: list[str]
     action_args: list[str]
+    project_name_override: str | None
 
 
 def parse_compose_cli_args(args: list[str]) -> ComposeCliArgs:
     compose_files = []
     compose_global_args = []
     action_args = []
+    project_name_override = None
     i = 0
     while i < len(args):
         arg = args[i]
@@ -45,7 +47,17 @@ def parse_compose_cli_args(args: list[str]) -> ComposeCliArgs:
             i += 2
             continue
         if arg in ("-p", "--project-name"):
-            raise SystemExit("ERROR: overriding project name is not allowed")
+            if i + 1 >= len(args):
+                raise SystemExit(f"ERROR: missing value after {arg}")
+            project_name_override = args[i + 1]
+            i += 2
+            continue
+        if arg.startswith("--project-name="):
+            project_name_override = arg.split("=", 1)[1]
+            i += 1
+            continue
+        # Compose-global options must stay before the subcommand when we later
+        # reconstruct `docker compose ...`, so they are separated here.
         if arg in COMPOSE_GLOBAL_OPTS_WITH_VALUE:
             if i + 1 >= len(args):
                 raise SystemExit(f"ERROR: missing value after {arg}")
@@ -64,6 +76,7 @@ def parse_compose_cli_args(args: list[str]) -> ComposeCliArgs:
         i += 1
 
     if not compose_files:
+        # Mirror the usual Compose file discovery order for the current dir.
         for candidate in ("docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml"):
             if Path(candidate).exists():
                 compose_files.append(candidate)
@@ -76,4 +89,5 @@ def parse_compose_cli_args(args: list[str]) -> ComposeCliArgs:
         compose_files=compose_files,
         compose_global_args=compose_global_args,
         action_args=action_args,
+        project_name_override=project_name_override,
     )

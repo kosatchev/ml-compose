@@ -36,10 +36,6 @@ def gpu_file_stem(gpu_id: str) -> str:
     return f"gpu-{gpu_id.replace(':', '__')}"
 
 
-def legacy_state_file_path(gpu_id: str) -> Path:
-    return STATE_DIR / f"gpu{gpu_id}.json"
-
-
 def project_is_running(project_name: str) -> bool:
     result = run(
         [
@@ -74,11 +70,7 @@ def project_has_restarting(project_name: str) -> bool:
 def read_state_lock(gpu_id: str):
     path = state_file_path(gpu_id)
     if not path.exists():
-        legacy_path = legacy_state_file_path(gpu_id)
-        if legacy_path.exists():
-            path = legacy_path
-        else:
-            return None
+        return None
     try:
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
@@ -108,6 +100,8 @@ def write_state_locks(gpu_ids: list[str], username: str, project_name: str, comp
 
     for gpu_id in gpu_ids:
         path = state_file_path(gpu_id)
+        # State files are the durable record of GPU ownership between compose
+        # actions; they are separate from short-lived guard file locks.
         data = {
             "gpu": gpu_id,
             "gpus": gpu_ids,
@@ -146,15 +140,15 @@ def update_state_locks_activated(gpu_ids: list[str], project_name: str):
 
 def remove_state_locks_if_owned(gpu_ids: list[str], username: str, project_name: str):
     for gpu_id in gpu_ids:
+        path = state_file_path(gpu_id)
         data = read_state_lock(gpu_id)
         if not data:
             continue
         if data.get("owner") == username and data.get("project") == project_name:
-            for path in (state_file_path(gpu_id), legacy_state_file_path(gpu_id)):
-                try:
-                    path.unlink()
-                except FileNotFoundError:
-                    pass
+            try:
+                path.unlink()
+            except FileNotFoundError:
+                pass
 
 
 def get_gpus_from_existing_project(project_name: str) -> list[str]:
@@ -182,6 +176,8 @@ def acquire_guard_locks(gpu_ids: list[str], timeout_seconds: int = GUARD_LOCK_TI
     fds = []
     start = time.monotonic()
 
+    # Always lock GPUs in sorted order so concurrent processes do not deadlock
+    # while trying to acquire overlapping GPU sets.
     for gpu_id in sorted(gpu_ids):
         path = guard_file_path(gpu_id)
         fd = os.open(path, os.O_CREAT | os.O_RDWR, 0o644)
@@ -264,12 +260,9 @@ def check_and_cleanup_state_locks_or_die(gpu_ids: list[str], username: str, proj
                 f"ERROR: GPU {gpu_id} is in use by owner={lock_owner}, project={lock_project}"
             )
 
-        removed = False
-        for path in (state_file_path(gpu_id), legacy_state_file_path(gpu_id)):
-            try:
-                path.unlink()
-                removed = True
-            except FileNotFoundError:
-                pass
-        if removed:
+        path = state_file_path(gpu_id)
+        try:
+            path.unlink()
             print(f"WARN: removed stale lock for GPU {gpu_id} (owner={lock_owner}, project={lock_project})")
+        except FileNotFoundError:
+            pass

@@ -6,43 +6,14 @@ import yaml
 
 from common import is_under, resolve_mount_source, user_home
 
-SENSITIVE_MOUNTS = {
-    "/",
-    "/etc",
-    "/root",
-    "/boot",
-    "/proc",
-    "/sys",
-    "/run",
-    "/var/run",
-    "/var/run/docker.sock",
-}
-
-ALLOWED_DEVICE_REGEX = [
-    r"^/dev/nvidia\d+$",
-    r"^/dev/nvidiactl$",
-    r"^/dev/nvidia-uvm$",
-    r"^/dev/nvidia-uvm-tools$",
-    r"^/dev/nvidia-modeset$",
-    r"^/dev/kfd$",
-    r"^/dev/dri(/.*)?$",
-]
-
-ALLOWED_ABS_MOUNT_PREFIXES = [
-    "/home",
-    "/srv/ml/datasets",
-    "/srv/ml/models",
-    "/srv/ml/cache",
-    "/srv/ml/users",
-    "/tmp",
-    "/var/tmp",
-]
-
 OWNER_LABEL = "ml.owner"
 PROJECT_LABEL = "ml.project"
 GPU_LABEL = "ml.gpu"
 
-DEFAULT_POLICY = {
+# Default booleans for policy-driven mode.
+# These values are applied when a compose-policy.yml file is present but omits
+# some boolean switches.
+BOOLEAN_POLICY_DEFAULTS = {
     "deny_privileged": True,
     "deny_docker_sock": True,
     "deny_pid_host": True,
@@ -54,22 +25,59 @@ DEFAULT_POLICY = {
     "warn_cap_add": True,
     "warn_security_opt": True,
     "warn_on_bind_outside_allowed_prefixes": True,
-    "deny_sensitive_mounts": sorted(SENSITIVE_MOUNTS),
-    "allow_device_exact": [
-        "/dev/nvidiactl",
-        "/dev/nvidia-uvm",
-        "/dev/nvidia-uvm-tools",
-        "/dev/nvidia-modeset",
-        "/dev/kfd",
-        "/dev/dri",
-    ],
-    "allow_device_regex": list(ALLOWED_DEVICE_REGEX),
-    "allowed_abs_mount_prefixes": list(ALLOWED_ABS_MOUNT_PREFIXES),
     "forbid_other_user_homes": True,
 }
+
+# Fallback booleans for no-config mode.
+# Without compose-policy.yml, the wrapper should still run, but policy
+# enforcement is intentionally permissive so the tool behaves mostly like an
+# operational wrapper with GPU locking rather than a strict security gate.
+FALLBACK_BOOLEAN_POLICY = {
+    "deny_privileged": False,
+    "deny_docker_sock": False,
+    "deny_pid_host": False,
+    "deny_cgroup_host": False,
+    "deny_userns_host": False,
+    "warn_network_host": False,
+    "warn_ipc_host": False,
+    "warn_root_user": False,
+    "warn_cap_add": False,
+    "warn_security_opt": False,
+    "warn_on_bind_outside_allowed_prefixes": False,
+    "forbid_other_user_homes": False,
+}
+
+# Fallback list-based policy for no-config mode.
+# These lists are intentionally broad: almost all host paths are allowed, and
+# device access is effectively open under /dev/*.
+FALLBACK_LIST_POLICY = {
+    "deny_sensitive_mounts": [],
+    "allow_device_exact": [],
+    "allow_device_regex": [
+        r"^/dev(/.*)?$",
+    ],
+    "allowed_abs_mount_prefixes": [
+        "/",
+    ],
+}
+
+# List-based keys must be provided explicitly by compose-policy.yml when the
+# file is present. This keeps mount/device rules in a single source of truth.
+LIST_POLICY_KEYS = {
+    "deny_sensitive_mounts",
+    "allow_device_exact",
+    "allow_device_regex",
+    "allowed_abs_mount_prefixes",
+}
+
+SUPPORTED_POLICY_KEYS = set(BOOLEAN_POLICY_DEFAULTS) | LIST_POLICY_KEYS
+
+
 def load_policy(policy_path: Path | None) -> dict:
-    policy = dict(DEFAULT_POLICY)
+    # No-config mode: keep the wrapper usable with permissive built-ins.
     if policy_path is None:
+        policy = dict(FALLBACK_BOOLEAN_POLICY)
+        policy.update(FALLBACK_LIST_POLICY)
         return policy
 
     try:
@@ -81,12 +89,21 @@ def load_policy(policy_path: Path | None) -> dict:
     if not isinstance(loaded, dict):
         raise SystemExit(f"ERROR: policy file '{policy_path}' must contain a YAML mapping")
 
-    unknown_keys = sorted(set(loaded) - set(DEFAULT_POLICY))
+    unknown_keys = sorted(set(loaded) - SUPPORTED_POLICY_KEYS)
     if unknown_keys:
         raise SystemExit(
             f"ERROR: policy file '{policy_path}' contains unsupported keys: {', '.join(unknown_keys)}"
         )
 
+    missing_keys = sorted(LIST_POLICY_KEYS - set(loaded))
+    if missing_keys:
+        raise SystemExit(
+            f"ERROR: policy file '{policy_path}' is missing required keys: {', '.join(missing_keys)}"
+        )
+
+    # Policy mode: apply strict-ish boolean defaults, but take all list-driven
+    # mount/device rules directly from YAML.
+    policy = dict(BOOLEAN_POLICY_DEFAULTS)
     policy.update(loaded)
     return policy
 
@@ -147,6 +164,8 @@ def is_bind_mount(volume):
 def validate_service(service_name: str, service: dict, working_dir: Path, username: str, policy: dict):
     errors = []
     warnings = []
+    # These structures are the effective policy after defaults/fallbacks have
+    # already been merged by load_policy().
     sensitive_mounts = set(policy.get("deny_sensitive_mounts", []))
     allowed_device_exact = {str(x) for x in policy.get("allow_device_exact", [])}
     allowed_mount_prefixes = list(policy.get("allowed_abs_mount_prefixes", []))
@@ -200,16 +219,20 @@ def validate_service(service_name: str, service: dict, working_dir: Path, userna
             continue
 
         src_path = resolve_mount_source(src, working_dir)
+        src_path_str = str(src_path)
 
-        if str(src_path) == "/var/run/docker.sock" and not policy.get("deny_docker_sock", True):
-            pass
-        elif str(src_path) in sensitive_mounts:
+        # docker.sock is special-cased because some teams want it controlled by
+        # a dedicated boolean instead of only through deny_sensitive_mounts.
+        if src_path_str == "/var/run/docker.sock" and not policy.get("deny_docker_sock", True):
+            continue
+
+        if src_path_str in sensitive_mounts:
             errors.append(f"{service_name}: mount of '{src_path}' is forbidden")
             continue
 
         for sensitive in sensitive_mounts:
             if sensitive == "/":
-                if str(src_path) == "/":
+                if src_path_str == "/":
                     errors.append(f"{service_name}: mounting host root '/' is forbidden")
             else:
                 if is_under(src_path, sensitive):

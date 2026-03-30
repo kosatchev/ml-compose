@@ -114,6 +114,8 @@ def ensure_docker_access():
 
 
 def docker_compose_action(action: str, project_name: str, compose_files: list[str], compose_global_args: list[str], extra_args):
+    # Always force a concrete project name so labels, compose state, and GPU
+    # lock ownership all refer to the same namespace.
     base = ["docker", "compose", "-p", project_name]
     for arg in compose_global_args:
         base.append(arg)
@@ -168,6 +170,8 @@ def cmd_reconcile_locks():
     ensure_lock_dirs()
     removed = 0
 
+    # Reconcile only state files; guard locks are transient file locks and do
+    # not need manual cleanup.
     for path in sorted(STATE_DIR.glob("*.json")):
         try:
             with open(path, "r", encoding="utf-8") as f:
@@ -207,16 +211,18 @@ def cmd_reconcile_locks():
 def usage():
     print(
         "Usage:\n"
-        "  sudo ml-compose up --gpu <id[,id,...]|all> [--gpu-backend auto|nvidia|amd] [docker compose args]\n"
-        "  sudo ml-compose down\n"
-        "  sudo ml-compose ps\n"
-        "  sudo ml-compose logs [-f]\n"
-        "  sudo ml-compose restart\n"
-        "  sudo ml-compose stop\n"
-        "  sudo ml-compose start\n"
-        "  sudo ml-compose config\n"
+        "  sudo ml-compose up --gpu <id[,id,...]|all> [--gpu-backend auto|nvidia|amd] [-p NAME] [docker compose args]\n"
+        "  sudo ml-compose down [-p NAME]\n"
+        "  sudo ml-compose ps [-p NAME]\n"
+        "  sudo ml-compose logs [-f] [-p NAME]\n"
+        "  sudo ml-compose restart [-p NAME]\n"
+        "  sudo ml-compose stop [-p NAME]\n"
+        "  sudo ml-compose start [-p NAME]\n"
+        "  sudo ml-compose config [-p NAME]\n"
         "  sudo ml-compose gpu-status\n"
         "  sudo ml-compose reconcile-locks\n"
+        "\n"
+        "By default the project name is generated automatically; use -p/--project-name to override it.\n"
     )
 
 
@@ -267,15 +273,17 @@ def main():
     compose_files = compose_cli.compose_files
     compose_global_args = compose_cli.compose_global_args
     extra_args = compose_cli.action_args
+    project_name_override = compose_cli.project_name_override
 
     if action == "up" and gpu_backend == "none":
         raise SystemExit("ERROR: no supported GPU backend detected on this host")
 
+    up_gpu_selection = None
     if action == "up":
         valid_gpu_ids = get_gpu_ids(gpu_backend)
         requested_gpu_ids = parse_gpu_spec(gpu_spec, valid_gpu_ids)
-        gpu_selection = build_gpu_selection(gpu_backend, requested_gpu_ids)
-        if not gpu_selection.visible_ids:
+        up_gpu_selection = build_gpu_selection(gpu_backend, requested_gpu_ids)
+        if not up_gpu_selection.visible_ids:
             raise SystemExit("ERROR: 'up' requires --gpu <id[,id,...]|all>")
 
     if action != "up" and gpu_spec is not None:
@@ -299,10 +307,21 @@ def main():
     if policy_path is not None:
         print(f"POLICY: {policy_path}")
 
-    project_suffix = hashlib.sha1(str(cwd).encode("utf-8")).hexdigest()[:8]
-    project_name = sanitize_project_name(f"{username}_{cwd.name}_{project_suffix}")
+    if project_name_override:
+        project_name = sanitize_project_name(project_name_override)
+    else:
+        # Default project names stay deterministic for the same working tree,
+        # but avoid collisions between similarly named directories.
+        project_suffix = hashlib.sha1(str(cwd).encode("utf-8")).hexdigest()[:8]
+        project_name = sanitize_project_name(f"{username}_{cwd.name}_{project_suffix}")
 
-    rendered = docker_compose_config([str(path) for path in compose_paths], compose_global_args)
+    # Validate the fully rendered Compose model rather than raw YAML so merges,
+    # env expansion, and multi-file overrides are checked as Docker sees them.
+    rendered = docker_compose_config(
+        [str(path) for path in compose_paths],
+        compose_global_args,
+        project_name=project_name,
+    )
     try:
         doc = yaml.safe_load(rendered)
     except Exception as ex:
@@ -314,8 +333,8 @@ def main():
     errors, warnings = validate_doc(doc, base_compose_path.parent, username, policy)
 
     if action == "up":
-        inject_gpu_env(doc, gpu_selection.env)
-        add_labels_to_services(doc, username, project_name, gpu_selection.lock_ids)
+        inject_gpu_env(doc, up_gpu_selection.env)
+        add_labels_to_services(doc, username, project_name, up_gpu_selection.lock_ids)
     else:
         existing_gpu_ids = get_gpus_from_existing_project(project_name)
         add_labels_to_services(doc, username, project_name, existing_gpu_ids)
@@ -336,18 +355,20 @@ def main():
 
     try:
         if action == "up":
-            guard_fds = acquire_guard_locks(gpu_selection.lock_ids)
-            check_and_cleanup_state_locks_or_die(gpu_selection.lock_ids, username, project_name)
-            write_state_locks(gpu_selection.lock_ids, username, project_name, str(cwd))
+            # Guard locks serialize state transitions for the same GPU set
+            # before we inspect or modify persistent state files.
+            guard_fds = acquire_guard_locks(up_gpu_selection.lock_ids)
+            check_and_cleanup_state_locks_or_die(up_gpu_selection.lock_ids, username, project_name)
+            write_state_locks(up_gpu_selection.lock_ids, username, project_name, str(cwd))
 
             try:
                 docker_compose_action("up", project_name, [temp_compose], compose_global_args, extra_args)
             except Exception:
-                remove_state_locks_if_owned(gpu_selection.lock_ids, username, project_name)
+                remove_state_locks_if_owned(up_gpu_selection.lock_ids, username, project_name)
                 raise
 
-            update_state_locks_activated(gpu_selection.lock_ids, project_name)
-            print(f"Locked GPUs for project '{project_name}': {','.join(gpu_selection.visible_ids)}")
+            update_state_locks_activated(up_gpu_selection.lock_ids, project_name)
+            print(f"Locked GPUs for project '{project_name}': {','.join(up_gpu_selection.visible_ids)}")
 
         elif action == "down":
             project_gpu_ids_before = get_gpus_from_existing_project(project_name)

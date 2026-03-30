@@ -1,9 +1,15 @@
+# Policy file for ml-compose.
+# If this file is present, list-based rules below become the source of truth.
+# Boolean flags may still be omitted and will fall back to code defaults.
+
+# Hard denies.
 deny_privileged: true
 deny_docker_sock: true
 deny_pid_host: true
 deny_cgroup_host: true
 deny_userns_host: true
 
+# Warnings. These do not block launch, but are shown to the operator.
 warn_network_host: true
 warn_ipc_host: true
 warn_root_user: true
@@ -11,6 +17,7 @@ warn_cap_add: true
 warn_security_opt: true
 warn_on_bind_outside_allowed_prefixes: true
 
+# Host paths that must never be bind-mounted when this policy is active.
 deny_sensitive_mounts:
   - /
   - /etc
@@ -22,6 +29,8 @@ deny_sensitive_mounts:
   - /var/run
   - /var/run/docker.sock
 
+# Exact device nodes allowed in `devices:`.
+# Keep broad classes in `allow_device_regex`; use this list for one-off device files.
 allow_device_exact:
   - /dev/nvidiactl
   - /dev/nvidia-uvm
@@ -30,11 +39,16 @@ allow_device_exact:
   - /dev/kfd
   - /dev/dri
 
+# Regex-based device allowlist.
+# NVIDIA GPUs are matched via /dev/nvidiaN, AMD/DRM via /dev/kfd and /dev/dri/*.
 allow_device_regex:
   - '^/dev/nvidia\d+$'
   - '^/dev/kfd$'
   - '^/dev/dri(/.*)?$'
 
+# Absolute host path prefixes that are considered normal bind-mount roots.
+# Mounts outside these prefixes can still work, but will produce a warning
+# when `warn_on_bind_outside_allowed_prefixes` is enabled.
 allowed_abs_mount_prefixes:
   - /home
   - /tmp
@@ -47,4 +61,5 @@ allowed_abs_mount_prefixes:
   - /mnt
   - /opt/projects
 
+# Forbid mounting another user's home directory when the source path is under /home.
 forbid_other_user_homes: true

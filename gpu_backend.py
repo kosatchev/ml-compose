@@ -100,6 +100,8 @@ def namespaced_gpu_ids(backend: str, gpu_ids: list[str]) -> list[str]:
 
 
 def build_gpu_selection(backend: str, visible_ids: list[str]) -> GpuSelection:
+    # User-facing GPU IDs stay simple (`0,1`), while internal lock IDs are
+    # backend-namespaced (`nvidia:0`, `amd:0`) to avoid mixed-host collisions.
     return GpuSelection(
         backend=backend,
         visible_ids=list(visible_ids),
