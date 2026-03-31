@@ -73,11 +73,34 @@ LIST_POLICY_KEYS = {
 SUPPORTED_POLICY_KEYS = set(BOOLEAN_POLICY_DEFAULTS) | LIST_POLICY_KEYS
 
 
+def _validate_policy_types(policy: dict, source_name: str):
+    for key in BOOLEAN_POLICY_DEFAULTS:
+        if key in policy and not isinstance(policy[key], bool):
+            raise SystemExit(
+                f"ERROR: policy '{source_name}' key '{key}' must be a boolean"
+            )
+
+    for key in LIST_POLICY_KEYS:
+        if key in policy and not isinstance(policy[key], list):
+            raise SystemExit(
+                f"ERROR: policy '{source_name}' key '{key}' must be a list"
+            )
+
+    for key in LIST_POLICY_KEYS:
+        if key not in policy:
+            continue
+        if not all(isinstance(item, str) for item in policy[key]):
+            raise SystemExit(
+                f"ERROR: policy '{source_name}' key '{key}' must contain only strings"
+            )
+
+
 def load_policy(policy_path: Path | None) -> dict:
     # No-config mode: keep the wrapper usable with permissive built-ins.
     if policy_path is None:
         policy = dict(FALLBACK_BOOLEAN_POLICY)
         policy.update(FALLBACK_LIST_POLICY)
+        _validate_policy_types(policy, "built-in fallback")
         return policy
 
     try:
@@ -105,6 +128,7 @@ def load_policy(policy_path: Path | None) -> dict:
     # mount/device rules directly from YAML.
     policy = dict(BOOLEAN_POLICY_DEFAULTS)
     policy.update(loaded)
+    _validate_policy_types(policy, str(policy_path))
     return policy
 
 

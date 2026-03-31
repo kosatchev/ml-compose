@@ -228,7 +228,6 @@ def usage():
 
 def main():
     ensure_tools()
-    ensure_docker_access()
 
     if len(sys.argv) < 2:
         usage()
@@ -238,6 +237,9 @@ def main():
     if action not in ALLOWED_ACTIONS:
         usage()
         raise SystemExit(f"ERROR: unsupported action '{action}'")
+
+    if action in {"up", "down", "ps", "logs", "restart", "stop", "start", "config"}:
+        ensure_docker_access()
 
     raw_args = sys.argv[2:]
     gpu_backend_pref, raw_args = parse_gpu_backend_arg(raw_args)

@@ -46,6 +46,10 @@ def parse_compose_cli_args(args: list[str]) -> ComposeCliArgs:
             compose_files.append(args[i + 1])
             i += 2
             continue
+        if arg.startswith("--file="):
+            compose_files.append(arg.split("=", 1)[1])
+            i += 1
+            continue
         if arg in ("-p", "--project-name"):
             if i + 1 >= len(args):
                 raise SystemExit(f"ERROR: missing value after {arg}")
