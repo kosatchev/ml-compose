@@ -134,9 +134,9 @@ def load_policy(policy_path: Path | None) -> dict:
 
 def discover_policy_path(compose_path: Path, cwd: Path) -> Path | None:
     candidates = [
+        Path(__file__).resolve().parent / "compose-policy.yml",
         compose_path.parent / "compose-policy.yml",
         cwd / "compose-policy.yml",
-        Path(__file__).resolve().parent / "compose-policy.yml",
     ]
     seen = set()
     for candidate in candidates:

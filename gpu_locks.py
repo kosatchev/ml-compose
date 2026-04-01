@@ -10,7 +10,8 @@ from pathlib import Path
 from common import iso_utc, now_utc, parse_iso_utc, run
 from policy import GPU_LABEL, PROJECT_LABEL
 
-LOCK_DIR = Path("/var/lock/ml-gpu")
+APP_DIR = Path(__file__).resolve().parent
+LOCK_DIR = APP_DIR / "lock"
 STATE_DIR = LOCK_DIR / "state"
 GUARD_DIR = LOCK_DIR / "guard"
 

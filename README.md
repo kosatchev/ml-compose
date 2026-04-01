@@ -1,5 +1,9 @@
 # ml-compose
 
+Russian version: [README.ru.md](README.ru.md)  
+Administrator guide: [ADMIN.md](ADMIN.md)  
+Russian administrator guide: [ADMIN.ru.md](ADMIN.ru.md)
+
 `ml-compose` is a safer wrapper around `docker compose` for ML workloads.
 
 It validates the rendered Compose config before launch, applies a local policy,
@@ -35,24 +39,96 @@ GPU lock/state files to reduce accidental conflicts between projects.
 - `gpu_locks.py`: guard locks and state lock lifecycle
 - `compose-policy.yml`: optional local policy file
 
+## Recommended Install Layout
+
+For a self-contained system install:
+
+- application directory: `/opt/ml-compose/`
+- launcher: `/usr/local/bin/ml-compose`
+- policy file: `/opt/ml-compose/compose-policy.yml`
+- lock directories:
+  - `/opt/ml-compose/lock/state/`
+  - `/opt/ml-compose/lock/guard/`
+
+The application directory should be owned by `root:root` and not be writable
+by regular users.
+
 ## Usage
 
 Basic example:
 
 ```bash
-python3 ml-compose.py up --gpu 0 -f compose.yml
+python3 ml-compose.py up --gpu 0
 ```
 
-Typical commands:
+If `-f/--file` is not provided, `ml-compose` looks for a Compose file in the
+current directory using the usual order:
+
+- `docker-compose.yml`
+- `docker-compose.yaml`
+- `compose.yml`
+- `compose.yaml`
+
+### Typical commands
+
+Start one GPU from the default Compose file in the current directory:
 
 ```bash
-python3 ml-compose.py up --gpu 0,1 -f compose.yml
-python3 ml-compose.py up --gpu all --gpu-backend auto -f compose.yml
+python3 ml-compose.py up --gpu 0
+```
+
+Start several GPUs:
+
+```bash
+python3 ml-compose.py up --gpu 0,1
+```
+
+Take all GPUs from the selected backend:
+
+```bash
+python3 ml-compose.py up --gpu all --gpu-backend auto
+```
+
+Use a custom project name so later `down`, `ps`, and `logs` commands refer to
+the same deployment explicitly:
+
+```bash
 python3 ml-compose.py up --gpu 0 -p train-exp-01 -f compose.yml
+```
+
+Use several Compose files, for example base plus override:
+
+```bash
+python3 ml-compose.py up --gpu 0 -f compose.yml -f compose.override.yml
+```
+
+Stop a named project:
+
+```bash
 python3 ml-compose.py down -p train-exp-01 -f compose.yml
+```
+
+See container state for a named project:
+
+```bash
 python3 ml-compose.py ps -p train-exp-01 -f compose.yml
+```
+
+Follow logs for a named project:
+
+```bash
 python3 ml-compose.py logs -f -p train-exp-01
+```
+
+See which GPUs are visible and whether they are currently locked:
+
+```bash
 python3 ml-compose.py gpu-status
+```
+
+Clean up stale GPU state locks that no longer belong to a live project:
+
+```bash
 python3 ml-compose.py reconcile-locks
 ```
 
@@ -96,6 +172,10 @@ Environment variables:
 - NVIDIA: `CUDA_VISIBLE_DEVICES`
 - AMD: `HIP_VISIBLE_DEVICES`, `ROCR_VISIBLE_DEVICES`
 
+User-facing GPU indices are backend-local. For example, `--gpu 0` means
+`NVIDIA GPU 0` with `--gpu-backend nvidia`, and `AMD GPU 0` with
+`--gpu-backend amd`.
+
 Internal GPU lock IDs are namespaced, for example:
 
 - `nvidia:0`
@@ -107,9 +187,9 @@ This avoids collisions on mixed hosts.
 
 `ml-compose` looks for `compose-policy.yml` in this order:
 
-1. next to the primary Compose file
-2. in the current working directory
-3. next to the Python modules
+1. next to the Python modules
+2. next to the primary Compose file
+3. in the current working directory
 
 The current policy schema supports:
 
@@ -162,7 +242,8 @@ Services are labeled with:
 - `ml.project`
 - `ml.gpu`
 
-GPU coordination uses two kinds of files under `/var/lock/ml-gpu`:
+GPU coordination uses two kinds of files under `/opt/ml-compose/lock` in the
+recommended installation layout:
 
 - `guard/`: short-lived file locks during state transitions
 - `state/`: JSON files describing current ownership and activation state
@@ -180,3 +261,7 @@ fresh and no longer backed by running containers.
 ## Example Policy
 
 See [compose-policy.yml](compose-policy.yml).
+
+## License
+
+This project is licensed under the Apache License 2.0. See [LICENSE](LICENSE).
