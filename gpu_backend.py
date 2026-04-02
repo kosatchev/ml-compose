@@ -24,9 +24,9 @@ def parse_gpu_backend_arg(args):
     i = 0
     while i < len(args):
         arg = args[i]
-        if arg == "--gpu-backend":
+        if arg in ("-G", "--gpu-backend"):
             if i + 1 >= len(args):
-                raise SystemExit("ERROR: missing value after --gpu-backend")
+                raise SystemExit(f"ERROR: missing value after {arg}")
             backend = args[i + 1].strip().lower()
             i += 2
             continue

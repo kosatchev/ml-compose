@@ -103,6 +103,28 @@ Defaults!ML_COMPOSE secure_path="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/b
 Defaults!ML_COMPOSE env_reset
 ```
 
+Замечание для WSL:
+
+В WSL 2 с Docker Desktop и NVIDIA-поддержкой `nvidia-smi` часто лежит в
+`/usr/lib/wsl/lib`, а не в одном из стандартных каталогов `PATH`. В таком
+случае добавь этот путь в `secure_path` для wrapper'а:
+
+```sudoers
+Defaults!ML_COMPOSE secure_path="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/lib/wsl/lib"
+```
+
+Как более простой workaround для одного хоста можно ещё создать симлинк:
+
+```bash
+sudo ln -s /usr/lib/wsl/lib/nvidia-smi /usr/local/bin/nvidia-smi
+```
+
+Это удобно, если ты не хочешь расширять `secure_path`.
+
+Если `sudo ml-compose gpu-status` или `sudo ml-compose up --gpu ...` пишет,
+что GPU backend не найден, а обычный `nvidia-smi` у пользователя работает,
+первым делом проверь именно это.
+
 Если группы ещё нет:
 
 ```bash
@@ -131,10 +153,24 @@ sudo chmod 0644 /opt/ml-compose/compose-policy.yml
 
 После установки проверь:
 
-От root:
+На хостах с GPU, от root:
 
 ```bash
 sudo ml-compose gpu-status
+```
+
+На CPU-only хостах вместо этого используй общую проверку wrapper'а:
+
+```bash
+sudo ml-compose images -a
+```
+
+Для WSL дополнительно проверь:
+
+```bash
+which nvidia-smi
+sudo which nvidia-smi
+sudo env | grep ^PATH=
 ```
 
 От разрешённого пользователя внутри тестового Compose-проекта:
@@ -157,7 +193,7 @@ sudo ml-compose down
 
 ## Операционные заметки
 
-- `up` требует `--gpu`
+- `up` можно запускать и без `--gpu`; GPU-lock-файлы создаются только если указан `--gpu` или `-g`
 - если `-f` не указан, wrapper сам ищет стандартные Compose-файлы
 - lock-файлы лежат в `/opt/ml-compose/lock/`
 - для именованных проектов нужно использовать одно и то же `-p/--project-name`

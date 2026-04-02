@@ -46,7 +46,7 @@ from policy import (
 )
 
 ALLOWED_ACTIONS = {
-    "up", "down", "ps", "logs", "restart", "stop", "start", "config",
+    "up", "build", "pull", "down", "ps", "images", "logs", "restart", "stop", "start", "config",
     "gpu-status", "reconcile-locks",
 }
 
@@ -57,9 +57,9 @@ def parse_gpu_arg(args):
     i = 0
     while i < len(args):
         arg = args[i]
-        if arg == "--gpu":
+        if arg in ("-g", "--gpu"):
             if i + 1 >= len(args):
-                raise SystemExit("ERROR: missing value after --gpu")
+                raise SystemExit(f"ERROR: missing value after {arg}")
             gpu_spec = args[i + 1]
             i += 2
             continue
@@ -77,6 +77,8 @@ def parse_gpu_spec(gpu_spec: str | None, valid_gpu_ids: list[str]) -> list[str]:
         return []
 
     gpu_spec = gpu_spec.strip().lower()
+    if gpu_spec == "none":
+        return []
     if gpu_spec == "all":
         return sorted(valid_gpu_ids, key=int)
 
@@ -124,16 +126,66 @@ def docker_compose_action(action: str, project_name: str, compose_files: list[st
 
     if action == "up":
         cmd = base + ["up", "-d"] + extra_args
-    elif action in {"down", "restart", "stop", "start", "config"}:
+    elif action in {"build", "pull", "down", "restart", "stop", "start", "config"}:
         cmd = base + [action] + extra_args
     elif action == "logs":
         cmd = base + ["logs"] + extra_args
     elif action == "ps":
         cmd = base + ["ps"] + extra_args
+    elif action == "images":
+        cmd = base + ["images"] + extra_args
     else:
         raise SystemExit(f"ERROR: unsupported action '{action}'")
 
     run(cmd)
+
+
+def is_global_ps_action(args: list[str]) -> bool:
+    return "-a" in args or "--all" in args
+
+
+def ensure_no_compose_specific_args_for_global_ps(args: list[str]):
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        if arg in {"-p", "--project-name"}:
+            raise SystemExit("ERROR: global 'ps -a' does not support compose-specific -f/--file or -p/--project-name")
+        if arg in {"-f", "--file"}:
+            if i + 1 < len(args):
+                i += 2
+                continue
+            raise SystemExit("ERROR: global 'ps -a' does not support compose file selection via -f/--file")
+        if arg.startswith("--file=") or arg.startswith("--project-name="):
+            raise SystemExit("ERROR: global 'ps -a' does not support compose-specific -f/--file or -p/--project-name")
+        i += 1
+
+
+def cmd_global_ps(args: list[str]):
+    run(["docker", "ps"] + args)
+
+
+def is_global_images_action(args: list[str]) -> bool:
+    return "-a" in args or "--all" in args
+
+
+def ensure_no_compose_specific_args_for_global_images(args: list[str]):
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        if arg in {"-p", "--project-name"}:
+            raise SystemExit("ERROR: global 'images -a' does not support compose-specific -f/--file or -p/--project-name")
+        if arg in {"-f", "--file"}:
+            if i + 1 < len(args):
+                i += 2
+                continue
+            raise SystemExit("ERROR: global 'images -a' does not support compose file selection via -f/--file")
+        if arg.startswith("--file=") or arg.startswith("--project-name="):
+            raise SystemExit("ERROR: global 'images -a' does not support compose-specific -f/--file or -p/--project-name")
+        i += 1
+
+
+def cmd_global_images(args: list[str]):
+    run(["docker", "images"] + args)
 
 
 def cmd_gpu_status(gpu_backend: str):
@@ -211,9 +263,14 @@ def cmd_reconcile_locks():
 def usage():
     print(
         "Usage:\n"
-        "  sudo ml-compose up --gpu <id[,id,...]|all> [--gpu-backend auto|nvidia|amd] [-p NAME] [docker compose args]\n"
+        "  sudo ml-compose up [-g|--gpu <none|id[,id,...]|all>] [-G|--gpu-backend auto|nvidia|amd] [-p NAME] [docker compose args]\n"
+        "  sudo ml-compose build [-p NAME] [docker compose build args]\n"
+        "  sudo ml-compose pull [-p NAME] [docker compose pull args]\n"
         "  sudo ml-compose down [-p NAME]\n"
         "  sudo ml-compose ps [-p NAME]\n"
+        "  sudo ml-compose ps -a [docker ps args]\n"
+        "  sudo ml-compose images [-p NAME]\n"
+        "  sudo ml-compose images -a [docker images args]\n"
         "  sudo ml-compose logs [-f] [-p NAME]\n"
         "  sudo ml-compose restart [-p NAME]\n"
         "  sudo ml-compose stop [-p NAME]\n"
@@ -238,12 +295,14 @@ def main():
         usage()
         raise SystemExit(f"ERROR: unsupported action '{action}'")
 
-    if action in {"up", "down", "ps", "logs", "restart", "stop", "start", "config"}:
+    if action in {"up", "build", "pull", "down", "ps", "images", "logs", "restart", "stop", "start", "config"}:
         ensure_docker_access()
 
     raw_args = sys.argv[2:]
     gpu_backend_pref, raw_args = parse_gpu_backend_arg(raw_args)
-    gpu_backend = detect_gpu_backend(gpu_backend_pref) if action in {"up", "gpu-status"} else "none"
+    raw_gpu_spec, _ = parse_gpu_arg(raw_args)
+    explicit_no_gpu = raw_gpu_spec is not None and raw_gpu_spec.strip().lower() == "none"
+    gpu_backend = detect_gpu_backend(gpu_backend_pref) if action == "gpu-status" or (action == "up" and raw_gpu_spec is not None and not explicit_no_gpu) else "none"
     if gpu_backend in {"nvidia", "amd"}:
         ensure_backend_tools(gpu_backend)
 
@@ -255,6 +314,24 @@ def main():
 
     if action == "reconcile-locks":
         cmd_reconcile_locks()
+        return
+
+    if action == "ps" and is_global_ps_action(raw_args):
+        if gpu_spec := parse_gpu_arg(raw_args)[0]:
+            eprint("WARN: --gpu is ignored for this action")
+        if gpu_backend_pref != "auto":
+            eprint("WARN: --gpu-backend is ignored for this action")
+        ensure_no_compose_specific_args_for_global_ps(raw_args)
+        cmd_global_ps(raw_args)
+        return
+
+    if action == "images" and is_global_images_action(raw_args):
+        if gpu_spec := parse_gpu_arg(raw_args)[0]:
+            eprint("WARN: --gpu is ignored for this action")
+        if gpu_backend_pref != "auto":
+            eprint("WARN: --gpu-backend is ignored for this action")
+        ensure_no_compose_specific_args_for_global_images(raw_args)
+        cmd_global_images(raw_args)
         return
 
     username = real_user()
@@ -277,21 +354,25 @@ def main():
     extra_args = compose_cli.action_args
     project_name_override = compose_cli.project_name_override
 
-    if action == "up" and gpu_backend == "none":
-        raise SystemExit("ERROR: no supported GPU backend detected on this host")
-
     up_gpu_selection = None
     if action == "up":
-        valid_gpu_ids = get_gpu_ids(gpu_backend)
-        requested_gpu_ids = parse_gpu_spec(gpu_spec, valid_gpu_ids)
-        up_gpu_selection = build_gpu_selection(gpu_backend, requested_gpu_ids)
-        if not up_gpu_selection.visible_ids:
-            raise SystemExit("ERROR: 'up' requires --gpu <id[,id,...]|all>")
+        if gpu_spec is not None and gpu_spec.strip().lower() != "none" and gpu_backend == "none":
+            raise SystemExit("ERROR: no supported GPU backend detected on this host")
+
+        if gpu_spec is not None:
+            valid_gpu_ids = get_gpu_ids(gpu_backend)
+            requested_gpu_ids = parse_gpu_spec(gpu_spec, valid_gpu_ids)
+            if requested_gpu_ids:
+                up_gpu_selection = build_gpu_selection(gpu_backend, requested_gpu_ids)
 
     if action != "up" and gpu_spec is not None:
         eprint("WARN: --gpu is ignored for this action")
     if action != "up" and gpu_backend_pref != "auto":
         eprint("WARN: --gpu-backend is ignored for this action")
+    if action == "up" and gpu_spec is None and gpu_backend_pref != "auto":
+        eprint("WARN: --gpu-backend is ignored unless --gpu is also set")
+    if action == "up" and gpu_spec is not None and gpu_spec.strip().lower() == "none" and gpu_backend_pref != "auto":
+        eprint("WARN: --gpu-backend is ignored when --gpu none is used")
 
     compose_paths = []
     for compose_file in compose_files:
@@ -335,8 +416,11 @@ def main():
     errors, warnings = validate_doc(doc, base_compose_path.parent, username, policy)
 
     if action == "up":
-        inject_gpu_env(doc, up_gpu_selection.env)
-        add_labels_to_services(doc, username, project_name, up_gpu_selection.lock_ids)
+        if up_gpu_selection is not None:
+            inject_gpu_env(doc, up_gpu_selection.env)
+            add_labels_to_services(doc, username, project_name, up_gpu_selection.lock_ids)
+        else:
+            add_labels_to_services(doc, username, project_name, [])
     else:
         existing_gpu_ids = get_gpus_from_existing_project(project_name)
         add_labels_to_services(doc, username, project_name, existing_gpu_ids)
@@ -356,7 +440,7 @@ def main():
     guard_fds = []
 
     try:
-        if action == "up":
+        if action == "up" and up_gpu_selection is not None:
             # Guard locks serialize state transitions for the same GPU set
             # before we inspect or modify persistent state files.
             guard_fds = acquire_guard_locks(up_gpu_selection.lock_ids)
@@ -371,6 +455,9 @@ def main():
 
             update_state_locks_activated(up_gpu_selection.lock_ids, project_name)
             print(f"Locked GPUs for project '{project_name}': {','.join(up_gpu_selection.visible_ids)}")
+
+        elif action == "up":
+            docker_compose_action("up", project_name, [temp_compose], compose_global_args, extra_args)
 
         elif action == "down":
             project_gpu_ids_before = get_gpus_from_existing_project(project_name)

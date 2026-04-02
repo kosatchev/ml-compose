@@ -59,7 +59,7 @@ policy, выставляет переменные окружения для GPU,
 Базовый пример:
 
 ```bash
-python3 ml-compose.py up --gpu 0
+python3 ml-compose.py up
 ```
 
 Если `-f/--file` не указан, `ml-compose` ищет Compose-файл в текущей
@@ -71,6 +71,18 @@ python3 ml-compose.py up --gpu 0
 - `compose.yaml`
 
 ### Типичные команды
+
+Запуск простого проекта без выделения GPU и без GPU-блокировок:
+
+```bash
+python3 ml-compose.py up
+```
+
+Явный запуск в режиме без GPU:
+
+```bash
+python3 ml-compose.py up -g none
+```
 
 Запуск на одной GPU из compose-файла по умолчанию в текущей директории:
 
@@ -90,6 +102,14 @@ python3 ml-compose.py up --gpu 0,1
 python3 ml-compose.py up --gpu all --gpu-backend auto
 ```
 
+Если `--gpu` не указан, или передан `-g none`, `up` ведёт себя как обычный
+запуск Compose: не выставляет GPU env vars и не создаёт GPU-lock'и.
+
+Короткие алиасы для wrapper-опций:
+
+- `-g` для `--gpu`
+- `-G` для `--gpu-backend`
+
 Запуск с явным именем проекта, чтобы потом тем же именем пользоваться в `down`,
 `ps` и `logs`:
 
@@ -103,6 +123,24 @@ python3 ml-compose.py up --gpu 0 -p train-exp-01 -f compose.yml
 python3 ml-compose.py up --gpu 0 -f compose.yml -f compose.override.yml
 ```
 
+Собрать образы без запуска контейнеров:
+
+```bash
+python3 ml-compose.py build
+```
+
+Собрать без использования Docker build cache:
+
+```bash
+python3 ml-compose.py build --no-cache
+```
+
+Подтянуть последние версии образов без запуска контейнеров:
+
+```bash
+python3 ml-compose.py pull
+```
+
 Остановить именованный проект:
 
 ```bash
@@ -113,6 +151,24 @@ python3 ml-compose.py down -p train-exp-01 -f compose.yml
 
 ```bash
 python3 ml-compose.py ps -p train-exp-01 -f compose.yml
+```
+
+Посмотреть все контейнеры на хосте у всех пользователей:
+
+```bash
+python3 ml-compose.py ps -a
+```
+
+Посмотреть, какие образы связаны с проектом:
+
+```bash
+python3 ml-compose.py images -p train-exp-01 -f compose.yml
+```
+
+Посмотреть все образы на хосте:
+
+```bash
+python3 ml-compose.py images -a
 ```
 
 Подписаться на логи именованного проекта:
@@ -143,16 +199,21 @@ python3 ml-compose.py reconcile-locks
 2. Разбирает compose-аргументы, такие как `-f`, `--env-file`, `--profile` и `-p`.
 3. Получает итоговую конфигурацию через `docker compose config`.
 4. Загружает policy, если она доступна, и валидирует итоговый документ.
-5. Для `up` выставляет GPU env vars и служебные labels.
-6. Захватывает GPU guard locks и пишет state lock файлы.
+5. Для `up` всегда выставляет служебные labels; GPU env vars добавляет только если через `-g/--gpu` выбраны GPU.
+6. Захватывает GPU guard locks и пишет state lock файлы только если через `-g/--gpu` выбраны GPU.
 7. Запускает `docker compose`.
-8. После старта контейнеров помечает локи как активные.
+8. После старта контейнеров помечает локи как активные только для запусков с GPU-блокировкой.
 
 ## Поддерживаемые действия
 
 - `up`
+- `build`
+- `pull`
 - `down`
 - `ps`
+  `ps -a` работает отдельно: запускает глобальный `docker ps -a` и не требует Compose-файл.
+- `images`
+  `images -a` работает отдельно: запускает глобальный `docker images` и не требует Compose-файл.
 - `logs`
 - `restart`
 - `stop`
@@ -257,7 +318,7 @@ python3 ml-compose.py reconcile-locks
 
 ## Важные замечания
 
-- `up` требует `--gpu`
+- `up` работает и без `--gpu`; GPU-блокировки включаются только если указан `--gpu` или `-g`
 - `--gpu` и `--gpu-backend` игнорируются для не-`up` действий, кроме `gpu-status`
 - Compose-файлы должны находиться внутри текущей рабочей директории
 - Рабочая директория должна быть внутри home текущего пользователя или `/srv/ml/users/<user>`

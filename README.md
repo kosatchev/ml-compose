@@ -58,7 +58,7 @@ by regular users.
 Basic example:
 
 ```bash
-python3 ml-compose.py up --gpu 0
+python3 ml-compose.py up
 ```
 
 If `-f/--file` is not provided, `ml-compose` looks for a Compose file in the
@@ -70,6 +70,18 @@ current directory using the usual order:
 - `compose.yaml`
 
 ### Typical commands
+
+Start a simple project without GPU allocation or GPU locking:
+
+```bash
+python3 ml-compose.py up
+```
+
+Start explicitly in no-GPU mode:
+
+```bash
+python3 ml-compose.py up -g none
+```
 
 Start one GPU from the default Compose file in the current directory:
 
@@ -89,6 +101,15 @@ Take all GPUs from the selected backend:
 python3 ml-compose.py up --gpu all --gpu-backend auto
 ```
 
+If `--gpu` is omitted, or if you pass `-g none`, `up` behaves like a normal
+Compose launch: no GPU environment variables are injected and no GPU locks are
+created.
+
+Wrapper-specific short aliases:
+
+- `-g` for `--gpu`
+- `-G` for `--gpu-backend`
+
 Use a custom project name so later `down`, `ps`, and `logs` commands refer to
 the same deployment explicitly:
 
@@ -102,6 +123,24 @@ Use several Compose files, for example base plus override:
 python3 ml-compose.py up --gpu 0 -f compose.yml -f compose.override.yml
 ```
 
+Build images without starting containers:
+
+```bash
+python3 ml-compose.py build
+```
+
+Build without using Docker build cache:
+
+```bash
+python3 ml-compose.py build --no-cache
+```
+
+Pull the latest image versions without starting containers:
+
+```bash
+python3 ml-compose.py pull
+```
+
 Stop a named project:
 
 ```bash
@@ -112,6 +151,24 @@ See container state for a named project:
 
 ```bash
 python3 ml-compose.py ps -p train-exp-01 -f compose.yml
+```
+
+See all containers on the host across all users:
+
+```bash
+python3 ml-compose.py ps -a
+```
+
+See which images are associated with the project:
+
+```bash
+python3 ml-compose.py images -p train-exp-01 -f compose.yml
+```
+
+See all images on the host:
+
+```bash
+python3 ml-compose.py images -a
 ```
 
 Follow logs for a named project:
@@ -141,16 +198,21 @@ working directory and user. You can override it with `-p/--project-name`.
 2. Parses Compose arguments such as `-f`, `--env-file`, `--profile`, and `-p`.
 3. Resolves the final config using `docker compose config`.
 4. Loads policy, if available, and validates the rendered document.
-5. For `up`, injects GPU environment variables and service labels.
-6. Acquires GPU guard locks and writes state lock files.
+5. For `up`, always injects service labels; GPU environment variables are injected only when `-g/--gpu` selects GPUs.
+6. Acquires GPU guard locks and writes state lock files only when `-g/--gpu` selects GPUs.
 7. Launches `docker compose`.
-8. Marks locks as active after containers are up.
+8. Marks locks as active after containers are up only for GPU-locked launches.
 
 ## Supported Actions
 
 - `up`
+- `build`
+- `pull`
 - `down`
 - `ps`
+  `ps -a` is special: it runs global `docker ps -a` and does not require a Compose file.
+- `images`
+  `images -a` is special: it runs global `docker images` and does not require a Compose file.
 - `logs`
 - `restart`
 - `stop`
@@ -253,7 +315,7 @@ fresh and no longer backed by running containers.
 
 ## Notes
 
-- `up` requires `--gpu`
+- `up` works with or without `--gpu`; GPU locking is enabled only when `--gpu` or `-g` is used
 - `--gpu` and `--gpu-backend` are ignored for non-`up` actions except `gpu-status`
 - Compose files must be inside the current working directory
 - The working directory must be inside the current user's home or `/srv/ml/users/<user>`
