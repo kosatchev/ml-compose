@@ -1,8 +1,8 @@
 # ml-compose
 
-Russian version: [README.ru.md](README.ru.md)  
-Administrator guide: [ADMIN.md](ADMIN.md)  
-Russian administrator guide: [ADMIN.ru.md](ADMIN.ru.md)
+Russian version: `README.ru.md`  
+Administrator guide: `ADMIN.md`  
+Russian administrator guide: `ADMIN.ru.md`
 
 `ml-compose` is a safer wrapper around `docker compose` for ML workloads.
 
@@ -322,8 +322,8 @@ fresh and no longer backed by running containers.
 
 ## Example Policy
 
-See [compose-policy.yml](compose-policy.yml).
+See `compose-policy.yml`.
 
 ## License
 
-This project is licensed under the Apache License 2.0. See [LICENSE](LICENSE).
+This project is licensed under the Apache License 2.0. See `LICENSE`.

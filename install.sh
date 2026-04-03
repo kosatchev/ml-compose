@@ -28,6 +28,9 @@ install -o root -g root -m 0644 "$SRC_DIR/gpu_locks.py" "$INSTALL_DIR/gpu_locks.
 install -o root -g root -m 0644 "$SRC_DIR/policy.py" "$INSTALL_DIR/policy.py"
 install -o root -g root -m 0644 "$SRC_DIR/compose-policy.yml" "$INSTALL_DIR/compose-policy.yml"
 install -o root -g root -m 0644 "$SRC_DIR/README.md" "$INSTALL_DIR/README.md"
+install -o root -g root -m 0644 "$SRC_DIR/README.ru.md" "$INSTALL_DIR/README.ru.md"
+install -o root -g root -m 0644 "$SRC_DIR/ADMIN.md" "$INSTALL_DIR/ADMIN.md"
+install -o root -g root -m 0644 "$SRC_DIR/ADMIN.ru.md" "$INSTALL_DIR/ADMIN.ru.md"
 install -o root -g root -m 0644 "$SRC_DIR/LICENSE" "$INSTALL_DIR/LICENSE"
 
 cat > "$BIN_PATH" <<'EOF'
@@ -53,4 +56,6 @@ echo
 echo "Next steps:"
 echo "  1. Add a sudoers rule for $BIN_PATH"
 echo "  2. Do not add users to the docker group"
-echo "  3. Run: sudo ml-compose gpu-status"
+echo "  3. Verify installation:"
+echo "     - GPU hosts: sudo ml-compose gpu-status"
+echo "     - CPU-only hosts: sudo ml-compose images -a"

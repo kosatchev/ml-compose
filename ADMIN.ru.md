@@ -1,8 +1,8 @@
 # Инструкция для администратора
 
-English version: [ADMIN.md](ADMIN.md)  
-Пользовательская инструкция: [README.ru.md](README.ru.md)  
-English user guide: [README.md](README.md)
+English version: `ADMIN.md`  
+Пользовательская инструкция: `README.ru.md`  
+English user guide: `README.md`
 
 Этот документ описывает, как установить `ml-compose` так,
 чтобы не нужно было добавлять пользователей в группу `docker`.

@@ -13,7 +13,7 @@ except ImportError:
     sys.exit(2)
 
 from common import eprint, is_under, real_user, run, sanitize_project_name, user_home
-from compose_cli import parse_compose_cli_args
+from compose_cli import parse_compose_cli_args, strip_compose_global_args
 from compose_runtime import docker_compose_config, save_temp_compose
 from gpu_locks import (
     STATE_DIR,
@@ -244,7 +244,14 @@ def cmd_reconcile_locks():
         if state_lock_is_fresh(data):
             continue
 
-        if state_lock_is_active(data):
+        is_active = state_lock_is_active(data)
+        if is_active is None:
+            raise SystemExit(
+                f"ERROR: unable to verify whether GPU {gpu_id} is still in use by "
+                f"owner={data.get('owner')}, project={data.get('project')}"
+            )
+
+        if is_active:
             continue
 
         try:
@@ -313,25 +320,34 @@ def main():
         return
 
     if action == "reconcile-locks":
+        ensure_docker_access()
         cmd_reconcile_locks()
         return
 
     if action == "ps" and is_global_ps_action(raw_args):
-        if gpu_spec := parse_gpu_arg(raw_args)[0]:
+        gpu_spec, global_ps_args = parse_gpu_arg(raw_args)
+        global_ps_args, removed_compose_args = strip_compose_global_args(global_ps_args)
+        if gpu_spec:
             eprint("WARN: --gpu is ignored for this action")
         if gpu_backend_pref != "auto":
             eprint("WARN: --gpu-backend is ignored for this action")
-        ensure_no_compose_specific_args_for_global_ps(raw_args)
-        cmd_global_ps(raw_args)
+        if removed_compose_args:
+            eprint("WARN: compose-global arguments are ignored for this action")
+        ensure_no_compose_specific_args_for_global_ps(global_ps_args)
+        cmd_global_ps(global_ps_args)
         return
 
     if action == "images" and is_global_images_action(raw_args):
-        if gpu_spec := parse_gpu_arg(raw_args)[0]:
+        gpu_spec, global_images_args = parse_gpu_arg(raw_args)
+        global_images_args, removed_compose_args = strip_compose_global_args(global_images_args)
+        if gpu_spec:
             eprint("WARN: --gpu is ignored for this action")
         if gpu_backend_pref != "auto":
             eprint("WARN: --gpu-backend is ignored for this action")
-        ensure_no_compose_specific_args_for_global_images(raw_args)
-        cmd_global_images(raw_args)
+        if removed_compose_args:
+            eprint("WARN: compose-global arguments are ignored for this action")
+        ensure_no_compose_specific_args_for_global_images(global_images_args)
+        cmd_global_images(global_images_args)
         return
 
     username = real_user()

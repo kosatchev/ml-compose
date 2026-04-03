@@ -1,8 +1,8 @@
 # ml-compose
 
-English version: [README.md](README.md)  
-Инструкция для администратора: [ADMIN.ru.md](ADMIN.ru.md)  
-English administrator guide: [ADMIN.md](ADMIN.md)
+English version: `README.md`  
+Инструкция для администратора: `ADMIN.ru.md`  
+English administrator guide: `ADMIN.md`
 
 `ml-compose` — это более безопасный враппер вокруг `docker compose` для ML-задач.
 
@@ -325,8 +325,8 @@ python3 ml-compose.py reconcile-locks
 
 ## Пример policy
 
-См. [compose-policy.yml](compose-policy.yml).
+См. `compose-policy.yml`.
 
 ## Лицензия
 
-Проект распространяется под Apache License 2.0. См. [LICENSE](LICENSE).
+Проект распространяется под Apache License 2.0. См. `LICENSE`.

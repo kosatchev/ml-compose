@@ -71,6 +71,7 @@ LIST_POLICY_KEYS = {
 }
 
 SUPPORTED_POLICY_KEYS = set(BOOLEAN_POLICY_DEFAULTS) | LIST_POLICY_KEYS
+DOCKER_SOCK_PATHS = {"/var/run/docker.sock", "/run/docker.sock"}
 
 
 def _validate_policy_types(policy: dict, source_name: str):
@@ -93,6 +94,29 @@ def _validate_policy_types(policy: dict, source_name: str):
             raise SystemExit(
                 f"ERROR: policy '{source_name}' key '{key}' must contain only strings"
             )
+
+
+def merge_string_kv_list(items: list, updates: dict[str, str]) -> list:
+    merged = []
+    seen_keys = set()
+
+    for item in items:
+        if isinstance(item, str) and "=" in item:
+            key, _ = item.split("=", 1)
+            if key in updates:
+                merged.append(f"{key}={updates[key]}")
+            else:
+                merged.append(item)
+            seen_keys.add(key)
+            continue
+
+        merged.append(item)
+
+    for key, value in updates.items():
+        if key not in seen_keys:
+            merged.append(f"{key}={value}")
+
+    return merged
 
 
 def load_policy(policy_path: Path | None) -> dict:
@@ -247,7 +271,7 @@ def validate_service(service_name: str, service: dict, working_dir: Path, userna
 
         # docker.sock is special-cased because some teams want it controlled by
         # a dedicated boolean instead of only through deny_sensitive_mounts.
-        if src_path_str == "/var/run/docker.sock" and not policy.get("deny_docker_sock", True):
+        if src_path_str in DOCKER_SOCK_PATHS and not policy.get("deny_docker_sock", True):
             continue
 
         if src_path_str in sensitive_mounts:
@@ -283,12 +307,15 @@ def add_labels_to_services(doc: dict, username: str, project_name: str, gpu_ids:
     for _, svc in services.items():
         labels = svc.get("labels", {})
         if isinstance(labels, list):
-            parsed = {}
-            for item in labels:
-                if isinstance(item, str) and "=" in item:
-                    k, v = item.split("=", 1)
-                    parsed[k] = v
-            labels = parsed
+            svc["labels"] = merge_string_kv_list(
+                labels,
+                {
+                    OWNER_LABEL: username,
+                    PROJECT_LABEL: project_name,
+                    **({GPU_LABEL: gpu_value} if gpu_value is not None else {}),
+                },
+            )
+            continue
         elif not isinstance(labels, dict):
             labels = {}
 
@@ -304,12 +331,8 @@ def inject_gpu_env(doc: dict, gpu_env: dict[str, str]):
     for _, svc in services.items():
         env = svc.get("environment", {})
         if isinstance(env, list):
-            parsed = {}
-            for item in env:
-                if isinstance(item, str) and "=" in item:
-                    k, v = item.split("=", 1)
-                    parsed[k] = v
-            env = parsed
+            svc["environment"] = merge_string_kv_list(env, gpu_env)
+            continue
         elif env is None:
             env = {}
         elif not isinstance(env, dict):

@@ -1,8 +1,8 @@
 # Administrator Setup
 
-Russian version: [ADMIN.ru.md](ADMIN.ru.md)  
-User guide: [README.md](README.md)  
-Russian user guide: [README.ru.md](README.ru.md)
+Russian version: `ADMIN.ru.md`  
+User guide: `README.md`  
+Russian user guide: `README.ru.md`
 
 This guide describes how to install `ml-compose` so users can launch ML
 containers without being added to the `docker` group.

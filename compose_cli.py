@@ -32,6 +32,32 @@ class ComposeCliArgs:
     project_name_override: str | None
 
 
+def strip_compose_global_args(args: list[str]) -> tuple[list[str], list[str]]:
+    stripped = []
+    removed = []
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        if arg in COMPOSE_GLOBAL_OPTS_WITH_VALUE:
+            if i + 1 >= len(args):
+                raise SystemExit(f"ERROR: missing value after {arg}")
+            removed.extend([arg, args[i + 1]])
+            i += 2
+            continue
+        if any(arg.startswith(prefix) for prefix in COMPOSE_GLOBAL_OPTS_EQ_PREFIXES):
+            removed.append(arg)
+            i += 1
+            continue
+        if arg in COMPOSE_GLOBAL_FLAGS:
+            removed.append(arg)
+            i += 1
+            continue
+        stripped.append(arg)
+        i += 1
+
+    return stripped, removed
+
+
 def parse_compose_cli_args(args: list[str]) -> ComposeCliArgs:
     compose_files = []
     compose_global_args = []

@@ -37,7 +37,7 @@ def gpu_file_stem(gpu_id: str) -> str:
     return f"gpu-{gpu_id.replace(':', '__')}"
 
 
-def project_is_running(project_name: str) -> bool:
+def project_is_running(project_name: str) -> bool | None:
     result = run(
         [
             "docker", "ps",
@@ -48,11 +48,11 @@ def project_is_running(project_name: str) -> bool:
         capture_output=True,
     )
     if result.returncode != 0:
-        return False
+        return None
     return bool(result.stdout.strip())
 
 
-def project_has_restarting(project_name: str) -> bool:
+def project_has_restarting(project_name: str) -> bool | None:
     result = run(
         [
             "docker", "ps", "-a",
@@ -64,7 +64,7 @@ def project_has_restarting(project_name: str) -> bool:
         capture_output=True,
     )
     if result.returncode != 0:
-        return False
+        return None
     return bool(result.stdout.strip())
 
 
@@ -231,11 +231,15 @@ def state_lock_is_fresh(data: dict) -> bool:
         return False
 
 
-def state_lock_is_active(data: dict) -> bool:
+def state_lock_is_active(data: dict) -> bool | None:
     project = data.get("project")
     if not project:
         return False
-    return project_is_running(project) or project_has_restarting(project)
+    is_running = project_is_running(project)
+    has_restarting = project_has_restarting(project)
+    if is_running is None or has_restarting is None:
+        return None
+    return is_running or has_restarting
 
 
 def check_and_cleanup_state_locks_or_die(gpu_ids: list[str], username: str, project_name: str):
@@ -256,7 +260,14 @@ def check_and_cleanup_state_locks_or_die(gpu_ids: list[str], username: str, proj
                 f"(within grace period)"
             )
 
-        if state_lock_is_active(data):
+        is_active = state_lock_is_active(data)
+        if is_active is None:
+            raise SystemExit(
+                f"ERROR: unable to verify whether GPU {gpu_id} is still in use by "
+                f"owner={lock_owner}, project={lock_project}"
+            )
+
+        if is_active:
             raise SystemExit(
                 f"ERROR: GPU {gpu_id} is in use by owner={lock_owner}, project={lock_project}"
             )
