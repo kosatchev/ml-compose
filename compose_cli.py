@@ -2,6 +2,8 @@
 from dataclasses import dataclass
 from pathlib import Path
 
+from common import exit_cli_error
+
 
 COMPOSE_GLOBAL_OPTS_WITH_VALUE = {
     "--ansi",
@@ -40,7 +42,10 @@ def strip_compose_global_args(args: list[str]) -> tuple[list[str], list[str]]:
         arg = args[i]
         if arg in COMPOSE_GLOBAL_OPTS_WITH_VALUE:
             if i + 1 >= len(args):
-                raise SystemExit(f"ERROR: missing value after {arg}")
+                exit_cli_error(
+                    "missing required argument value",
+                    detail=f"option {arg} requires a value",
+                )
             removed.extend([arg, args[i + 1]])
             i += 2
             continue
@@ -68,7 +73,10 @@ def parse_compose_cli_args(args: list[str]) -> ComposeCliArgs:
         arg = args[i]
         if arg in ("-f", "--file"):
             if i + 1 >= len(args):
-                raise SystemExit("ERROR: missing value after -f/--file")
+                exit_cli_error(
+                    "missing required argument value",
+                    detail="option -f/--file requires a value",
+                )
             compose_files.append(args[i + 1])
             i += 2
             continue
@@ -78,7 +86,10 @@ def parse_compose_cli_args(args: list[str]) -> ComposeCliArgs:
             continue
         if arg in ("-p", "--project-name"):
             if i + 1 >= len(args):
-                raise SystemExit(f"ERROR: missing value after {arg}")
+                exit_cli_error(
+                    "missing required argument value",
+                    detail=f"option {arg} requires a value",
+                )
             project_name_override = args[i + 1]
             i += 2
             continue
@@ -90,7 +101,10 @@ def parse_compose_cli_args(args: list[str]) -> ComposeCliArgs:
         # reconstruct `docker compose ...`, so they are separated here.
         if arg in COMPOSE_GLOBAL_OPTS_WITH_VALUE:
             if i + 1 >= len(args):
-                raise SystemExit(f"ERROR: missing value after {arg}")
+                exit_cli_error(
+                    "missing required argument value",
+                    detail=f"option {arg} requires a value",
+                )
             compose_global_args.extend([arg, args[i + 1]])
             i += 2
             continue
@@ -113,7 +127,10 @@ def parse_compose_cli_args(args: list[str]) -> ComposeCliArgs:
                 break
 
     if not compose_files:
-        raise SystemExit("ERROR: no compose file found in current directory")
+        exit_cli_error(
+            "no compose file found in current directory",
+            hint="create compose.yml or pass a file explicitly",
+        )
 
     return ComposeCliArgs(
         compose_files=compose_files,

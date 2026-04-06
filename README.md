@@ -1,6 +1,7 @@
 # ml-compose
 
 Russian version: `README.ru.md`  
+ML user quick start: `ML_USERS.md`  
 Administrator guide: `ADMIN.md`  
 Russian administrator guide: `ADMIN.ru.md`
 
@@ -8,7 +9,7 @@ Russian administrator guide: `ADMIN.ru.md`
 
 It validates the rendered Compose config before launch, applies a local policy,
 injects GPU visibility environment variables, adds ownership labels, and keeps
-GPU lock/state files to reduce accidental conflicts between projects.
+GPU lock and state files to reduce accidental conflicts between projects.
 
 ## What It Does
 
@@ -83,7 +84,7 @@ Start explicitly in no-GPU mode:
 python3 ml-compose.py up -g none
 ```
 
-Start one GPU from the default Compose file in the current directory:
+Start with one GPU from the default Compose file in the current directory:
 
 ```bash
 python3 ml-compose.py up --gpu 0
@@ -95,7 +96,7 @@ Start several GPUs:
 python3 ml-compose.py up --gpu 0,1
 ```
 
-Take all GPUs from the selected backend:
+Use all GPUs from the selected backend:
 
 ```bash
 python3 ml-compose.py up --gpu all --gpu-backend auto
@@ -111,7 +112,7 @@ Wrapper-specific short aliases:
 - `-G` for `--gpu-backend`
 
 Use a custom project name so later `down`, `ps`, and `logs` commands refer to
-the same deployment explicitly:
+the same deployment explicitly. This is standard Compose behavior:
 
 ```bash
 python3 ml-compose.py up --gpu 0 -p train-exp-01 -f compose.yml
@@ -190,9 +191,10 @@ python3 ml-compose.py reconcile-locks
 ```
 
 By default, the project name is generated automatically from the current
-working directory and user. You can override it with `-p/--project-name`.
+working directory and user, then sanitized to stay Compose-compatible. You can
+override it with `-p/--project-name`.
 
-## How Launch Works
+## How It Works
 
 1. Parses wrapper arguments such as `--gpu` and `--gpu-backend`.
 2. Parses Compose arguments such as `-f`, `--env-file`, `--profile`, and `-p`.
@@ -280,11 +282,11 @@ Without `compose-policy.yml`, `ml-compose` still works. In that mode it uses:
 - permissive built-in defaults for boolean policy flags
 - permissive fallback mount/device rules with broad host access
 
-In practice, no-config mode mainly keeps:
+In practice, running without `compose-policy.yml` mainly keeps:
 
 - Compose rendering and validation flow
 - GPU environment injection
-- owner/project/GPU labels
+- owner, project, and GPU labels
 - GPU lock and state management
 
 Policy enforcement is intentionally weak in this mode, so use
@@ -311,7 +313,7 @@ recommended installation layout:
 - `state/`: JSON files describing current ownership and activation state
 
 `reconcile-locks` removes unreadable or stale state files that are no longer
-fresh and no longer backed by running containers.
+backed by running containers.
 
 ## Notes
 

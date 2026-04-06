@@ -4,7 +4,7 @@ import tempfile
 
 import yaml
 
-from common import eprint, run
+from common import eprint, exit_cli_error, run
 
 
 def docker_compose_config(
@@ -24,7 +24,10 @@ def docker_compose_config(
     if result.returncode != 0:
         eprint(result.stdout)
         eprint(result.stderr)
-        raise SystemExit("ERROR: 'docker compose config' failed")
+        exit_cli_error(
+            "'docker compose config' failed",
+            hint="fix the Compose configuration reported above and retry",
+        )
     return result.stdout
 
 

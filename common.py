@@ -5,11 +5,50 @@ import pwd
 import re
 import subprocess
 import sys
+import traceback
 from pathlib import Path
 
 
 def eprint(*args):
     print(*args, file=sys.stderr)
+
+
+def debug_enabled() -> bool:
+    return os.environ.get("ML_COMPOSE_DEBUG", "").strip() == "1"
+
+
+def print_cli_error(message: str, detail: str | None = None, hint: str | None = None, example: str | None = None):
+    eprint(f"ERROR: {message}")
+    if detail:
+        eprint(f"DETAIL: {detail}")
+    if hint:
+        eprint(f"HINT: {hint}")
+    if example:
+        eprint(f"EXAMPLE: {example}")
+
+
+def exit_cli_error(
+    message: str,
+    detail: str | None = None,
+    hint: str | None = None,
+    example: str | None = None,
+    code: int = 1,
+):
+    print_cli_error(message, detail=detail, hint=hint, example=example)
+    raise SystemExit(code)
+
+
+def print_unexpected_error(ex: Exception):
+    print_cli_error(
+        "unexpected internal error",
+        detail=str(ex) or ex.__class__.__name__,
+        hint="rerun with ML_COMPOSE_DEBUG=1 or contact the administrator",
+    )
+
+
+def maybe_print_debug_traceback():
+    if debug_enabled():
+        traceback.print_exc()
 
 
 def now_utc():
@@ -49,8 +88,12 @@ def user_home(username: str) -> Path:
 
 def sanitize_project_name(name: str) -> str:
     name = name.lower()
-    name = re.sub(r"[^a-z0-9_.-]+", "_", name)
-    name = re.sub(r"_+", "_", name).strip("_.-")
+    # Compose project names must stay within a conservative character set
+    # that works across CLI validation paths: lowercase letters, digits,
+    # hyphens, and underscores.
+    name = re.sub(r"[^a-z0-9_-]+", "-", name)
+    name = re.sub(r"-+", "-", name)
+    name = re.sub(r"_+", "_", name).strip("_-")
     return name or "project"
 
 

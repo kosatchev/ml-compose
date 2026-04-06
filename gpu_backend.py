@@ -5,7 +5,7 @@ import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
-from common import run
+from common import exit_cli_error, run
 
 GPU_BACKENDS = {"auto", "nvidia", "amd"}
 
@@ -26,7 +26,10 @@ def parse_gpu_backend_arg(args):
         arg = args[i]
         if arg in ("-G", "--gpu-backend"):
             if i + 1 >= len(args):
-                raise SystemExit(f"ERROR: missing value after {arg}")
+                exit_cli_error(
+                    "missing required argument value",
+                    detail=f"option {arg} requires a value",
+                )
             backend = args[i + 1].strip().lower()
             i += 2
             continue
@@ -37,20 +40,29 @@ def parse_gpu_backend_arg(args):
         cleaned.append(arg)
         i += 1
 
-    if backend not in GPU_BACKENDS:
-        raise SystemExit(
-            f"ERROR: unsupported GPU backend '{backend}'. Use one of: auto, nvidia, amd"
-        )
-
     return backend, cleaned
+
+
+def validate_gpu_backend(backend: str):
+    if backend not in GPU_BACKENDS:
+        exit_cli_error(
+            "unsupported GPU backend",
+            detail=f"got '{backend}', expected one of: auto, nvidia, amd",
+        )
 
 
 def detect_gpu_backend(preferred: str = "auto") -> str:
     if preferred != "auto":
         if preferred == "nvidia" and shutil.which("nvidia-smi") is None:
-            raise SystemExit("ERROR: GPU backend 'nvidia' requested but nvidia-smi is not available")
+            exit_cli_error(
+                "GPU backend 'nvidia' requested but nvidia-smi is not available",
+                hint="install NVIDIA tooling or choose another backend",
+            )
         if preferred == "amd" and not has_amd_runtime():
-            raise SystemExit("ERROR: GPU backend 'amd' requested but AMD GPU runtime was not detected")
+            exit_cli_error(
+                "GPU backend 'amd' requested but AMD GPU runtime was not detected",
+                hint="install AMD GPU runtime support or choose another backend",
+            )
         return preferred
 
     if shutil.which("nvidia-smi") is not None:
@@ -66,7 +78,11 @@ def has_amd_runtime() -> bool:
 
 def ensure_backend_tools(backend: str):
     if backend == "nvidia" and shutil.which("nvidia-smi") is None:
-        raise SystemExit("ERROR: required tool not found for NVIDIA backend: nvidia-smi")
+        exit_cli_error(
+            "required tool not found for NVIDIA backend",
+            detail="nvidia-smi is not available",
+            hint="install NVIDIA tooling or verify secure_path for sudo",
+        )
 
 
 def list_render_nodes() -> list[Path]:
@@ -77,7 +93,11 @@ def get_gpu_ids(backend: str) -> list[str]:
     if backend == "nvidia":
         result = run(["nvidia-smi", "-L"], check=False, capture_output=True)
         if result.returncode != 0:
-            raise SystemExit("ERROR: failed to query GPUs via nvidia-smi -L")
+            exit_cli_error(
+                "failed to query NVIDIA GPUs",
+                detail="nvidia-smi -L returned a non-zero exit status",
+                hint="verify NVIDIA driver installation and GPU access on the host",
+            )
 
         gpu_ids = []
         for line in result.stdout.splitlines():
@@ -89,10 +109,17 @@ def get_gpu_ids(backend: str) -> list[str]:
     if backend == "amd":
         render_nodes = list_render_nodes()
         if not render_nodes:
-            raise SystemExit("ERROR: failed to detect AMD GPUs via /dev/dri/renderD*")
+            exit_cli_error(
+                "failed to detect AMD GPUs",
+                detail="no /dev/dri/renderD* devices were found",
+                hint="verify AMD runtime devices on the host",
+            )
         return [str(idx) for idx, _ in enumerate(render_nodes)]
 
-    raise SystemExit("ERROR: no supported GPU backend detected on this host")
+    exit_cli_error(
+        "no supported GPU backend detected on this host",
+        hint="on CPU-only hosts run without --gpu or use -g none",
+    )
 
 
 def namespaced_gpu_ids(backend: str, gpu_ids: list[str]) -> list[str]:

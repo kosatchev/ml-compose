@@ -31,6 +31,8 @@ install -o root -g root -m 0644 "$SRC_DIR/README.md" "$INSTALL_DIR/README.md"
 install -o root -g root -m 0644 "$SRC_DIR/README.ru.md" "$INSTALL_DIR/README.ru.md"
 install -o root -g root -m 0644 "$SRC_DIR/ADMIN.md" "$INSTALL_DIR/ADMIN.md"
 install -o root -g root -m 0644 "$SRC_DIR/ADMIN.ru.md" "$INSTALL_DIR/ADMIN.ru.md"
+install -o root -g root -m 0644 "$SRC_DIR/ML_USERS.md" "$INSTALL_DIR/ML_USERS.md"
+install -o root -g root -m 0644 "$SRC_DIR/ML_USERS.ru.md" "$INSTALL_DIR/ML_USERS.ru.md"
 install -o root -g root -m 0644 "$SRC_DIR/LICENSE" "$INSTALL_DIR/LICENSE"
 
 cat > "$BIN_PATH" <<'EOF'

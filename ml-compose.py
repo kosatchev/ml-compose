@@ -2,6 +2,7 @@
 import hashlib
 import json
 import re
+import shlex
 import shutil
 import sys
 from pathlib import Path
@@ -12,7 +13,8 @@ except ImportError:
     print("ERROR: PyYAML is required: apt install python3-yaml", file=sys.stderr)
     sys.exit(2)
 
-from common import eprint, is_under, real_user, run, sanitize_project_name, user_home
+from common import eprint, exit_cli_error, is_under, real_user, run, sanitize_project_name, user_home
+from common import maybe_print_debug_traceback, print_cli_error, print_unexpected_error
 from compose_cli import parse_compose_cli_args, strip_compose_global_args
 from compose_runtime import docker_compose_config, save_temp_compose
 from gpu_locks import (
@@ -36,6 +38,7 @@ from gpu_backend import (
     get_gpu_ids,
     get_gpu_summary,
     parse_gpu_backend_arg,
+    validate_gpu_backend,
 )
 from policy import (
     discover_policy_path,
@@ -59,7 +62,10 @@ def parse_gpu_arg(args):
         arg = args[i]
         if arg in ("-g", "--gpu"):
             if i + 1 >= len(args):
-                raise SystemExit(f"ERROR: missing value after {arg}")
+                exit_cli_error(
+                    "missing required argument value",
+                    detail=f"option {arg} requires a value",
+                )
             gpu_spec = args[i + 1]
             i += 2
             continue
@@ -84,17 +90,25 @@ def parse_gpu_spec(gpu_spec: str | None, valid_gpu_ids: list[str]) -> list[str]:
 
     parts = [x.strip() for x in gpu_spec.split(",") if x.strip()]
     if not parts:
-        raise SystemExit("ERROR: empty GPU list")
+        exit_cli_error(
+            "empty GPU list",
+            hint="use 'none', 'all', or a comma-separated list such as 0,1",
+        )
 
     result = []
     seen = set()
 
     for p in parts:
         if not re.fullmatch(r"\d+", p):
-            raise SystemExit(f"ERROR: invalid GPU id '{p}'")
+            exit_cli_error(
+                "invalid GPU id",
+                detail=f"got '{p}', expected a numeric GPU id",
+                hint="use GPU ids like 0, 1, or 0,1",
+            )
         if p not in valid_gpu_ids:
-            raise SystemExit(
-                f"ERROR: GPU '{p}' not found. Available GPUs: {', '.join(valid_gpu_ids)}"
+            exit_cli_error(
+                "requested GPU was not found",
+                detail=f"GPU '{p}' is unavailable; available GPUs: {', '.join(valid_gpu_ids)}",
             )
         if p not in seen:
             seen.add(p)
@@ -106,13 +120,20 @@ def parse_gpu_spec(gpu_spec: str | None, valid_gpu_ids: list[str]) -> list[str]:
 def ensure_tools():
     for tool in ("docker",):
         if shutil.which(tool) is None:
-            raise SystemExit(f"ERROR: required tool not found: {tool}")
+            exit_cli_error(
+                "required tool not found",
+                detail=tool,
+                hint="install the missing tool on the host before using ml-compose",
+            )
 
 
 def ensure_docker_access():
     result = run(["docker", "info"], check=False, capture_output=True)
     if result.returncode != 0:
-        raise SystemExit("ERROR: docker daemon is not accessible")
+        exit_cli_error(
+            "docker daemon is not accessible",
+            hint="run via sudo or verify that Docker is running",
+        )
 
 
 def docker_compose_action(action: str, project_name: str, compose_files: list[str], compose_global_args: list[str], extra_args):
@@ -135,7 +156,7 @@ def docker_compose_action(action: str, project_name: str, compose_files: list[st
     elif action == "images":
         cmd = base + ["images"] + extra_args
     else:
-        raise SystemExit(f"ERROR: unsupported action '{action}'")
+        exit_cli_error("unsupported action", detail=action)
 
     run(cmd)
 
@@ -149,14 +170,23 @@ def ensure_no_compose_specific_args_for_global_ps(args: list[str]):
     while i < len(args):
         arg = args[i]
         if arg in {"-p", "--project-name"}:
-            raise SystemExit("ERROR: global 'ps -a' does not support compose-specific -f/--file or -p/--project-name")
+            exit_cli_error(
+                "global 'ps -a' does not support compose-specific arguments",
+                hint="remove -p/--project-name and -f/--file when using ps -a",
+            )
         if arg in {"-f", "--file"}:
             if i + 1 < len(args):
                 i += 2
                 continue
-            raise SystemExit("ERROR: global 'ps -a' does not support compose file selection via -f/--file")
+            exit_cli_error(
+                "global 'ps -a' does not support compose file selection",
+                hint="remove -f/--file when using ps -a",
+            )
         if arg.startswith("--file=") or arg.startswith("--project-name="):
-            raise SystemExit("ERROR: global 'ps -a' does not support compose-specific -f/--file or -p/--project-name")
+            exit_cli_error(
+                "global 'ps -a' does not support compose-specific arguments",
+                hint="remove -p/--project-name and -f/--file when using ps -a",
+            )
         i += 1
 
 
@@ -173,14 +203,23 @@ def ensure_no_compose_specific_args_for_global_images(args: list[str]):
     while i < len(args):
         arg = args[i]
         if arg in {"-p", "--project-name"}:
-            raise SystemExit("ERROR: global 'images -a' does not support compose-specific -f/--file or -p/--project-name")
+            exit_cli_error(
+                "global 'images -a' does not support compose-specific arguments",
+                hint="remove -p/--project-name and -f/--file when using images -a",
+            )
         if arg in {"-f", "--file"}:
             if i + 1 < len(args):
                 i += 2
                 continue
-            raise SystemExit("ERROR: global 'images -a' does not support compose file selection via -f/--file")
+            exit_cli_error(
+                "global 'images -a' does not support compose file selection",
+                hint="remove -f/--file when using images -a",
+            )
         if arg.startswith("--file=") or arg.startswith("--project-name="):
-            raise SystemExit("ERROR: global 'images -a' does not support compose-specific -f/--file or -p/--project-name")
+            exit_cli_error(
+                "global 'images -a' does not support compose-specific arguments",
+                hint="remove -p/--project-name and -f/--file when using images -a",
+            )
         i += 1
 
 
@@ -246,9 +285,12 @@ def cmd_reconcile_locks():
 
         is_active = state_lock_is_active(data)
         if is_active is None:
-            raise SystemExit(
-                f"ERROR: unable to verify whether GPU {gpu_id} is still in use by "
-                f"owner={data.get('owner')}, project={data.get('project')}"
+            exit_cli_error(
+                "unable to verify whether a GPU lock is still active",
+                detail=(
+                    f"GPU {gpu_id}, owner={data.get('owner')}, "
+                    f"project={data.get('project')}"
+                ),
             )
 
         if is_active:
@@ -300,7 +342,7 @@ def main():
     action = sys.argv[1]
     if action not in ALLOWED_ACTIONS:
         usage()
-        raise SystemExit(f"ERROR: unsupported action '{action}'")
+        exit_cli_error("unsupported action", detail=action)
 
     if action in {"up", "build", "pull", "down", "ps", "images", "logs", "restart", "stop", "start", "config"}:
         ensure_docker_access()
@@ -309,13 +351,19 @@ def main():
     gpu_backend_pref, raw_args = parse_gpu_backend_arg(raw_args)
     raw_gpu_spec, _ = parse_gpu_arg(raw_args)
     explicit_no_gpu = raw_gpu_spec is not None and raw_gpu_spec.strip().lower() == "none"
-    gpu_backend = detect_gpu_backend(gpu_backend_pref) if action == "gpu-status" or (action == "up" and raw_gpu_spec is not None and not explicit_no_gpu) else "none"
+    gpu_backend_is_relevant = action == "gpu-status" or (action == "up" and raw_gpu_spec is not None and not explicit_no_gpu)
+    if gpu_backend_is_relevant:
+        validate_gpu_backend(gpu_backend_pref)
+    gpu_backend = detect_gpu_backend(gpu_backend_pref) if gpu_backend_is_relevant else "none"
     if gpu_backend in {"nvidia", "amd"}:
         ensure_backend_tools(gpu_backend)
 
     if action == "gpu-status":
         if gpu_backend == "none":
-            raise SystemExit("ERROR: no supported GPU backend detected on this host")
+            exit_cli_error(
+                "no supported GPU backend detected on this host",
+                hint="use gpu-status only on GPU-capable hosts",
+            )
         cmd_gpu_status(gpu_backend)
         return
 
@@ -359,8 +407,10 @@ def main():
         Path(f"/srv/ml/users/{username}").resolve(),
     ]
     if not any(is_under(cwd, str(p)) for p in allowed_workdirs):
-        raise SystemExit(
-            f"ERROR: working directory '{cwd}' is not allowed; use your home or /srv/ml/users/{username}"
+        exit_cli_error(
+            "working directory is not allowed",
+            detail=str(cwd),
+            hint=f"use a directory under your home or /srv/ml/users/{username}",
         )
 
     gpu_spec, remaining_args = parse_gpu_arg(raw_args)
@@ -373,7 +423,10 @@ def main():
     up_gpu_selection = None
     if action == "up":
         if gpu_spec is not None and gpu_spec.strip().lower() != "none" and gpu_backend == "none":
-            raise SystemExit("ERROR: no supported GPU backend detected on this host")
+            exit_cli_error(
+                "no supported GPU backend detected on this host",
+                hint="on CPU-only hosts run without --gpu or use -g none",
+            )
 
         if gpu_spec is not None:
             valid_gpu_ids = get_gpu_ids(gpu_backend)
@@ -394,9 +447,16 @@ def main():
     for compose_file in compose_files:
         compose_path = (cwd / compose_file).resolve() if not Path(compose_file).is_absolute() else Path(compose_file).resolve()
         if not compose_path.exists():
-            raise SystemExit(f"ERROR: compose file not found: {compose_path}")
+            exit_cli_error(
+                "compose file not found",
+                detail=str(compose_path),
+            )
         if not is_under(compose_path, str(cwd)):
-            raise SystemExit(f"ERROR: compose file must be inside the current working directory: {compose_path}")
+            exit_cli_error(
+                "compose file must be inside the current working directory",
+                detail=str(compose_path),
+                hint="move the file under the current project directory or run from the correct directory",
+            )
         compose_paths.append(compose_path)
 
     base_compose_path = compose_paths[0]
@@ -424,10 +484,13 @@ def main():
     try:
         doc = yaml.safe_load(rendered)
     except Exception as ex:
-        raise SystemExit(f"ERROR: failed to parse rendered compose config: {ex}")
+        exit_cli_error(
+            "failed to parse rendered compose config",
+            detail=str(ex),
+        )
 
     if not isinstance(doc, dict):
-        raise SystemExit("ERROR: rendered compose config is invalid")
+        exit_cli_error("rendered compose config is invalid")
 
     errors, warnings = validate_doc(doc, base_compose_path.parent, username, policy)
 
@@ -498,4 +561,21 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except PermissionError as ex:
+        example = None
+        if len(sys.argv) >= 2:
+            example = "sudo " + shlex.join(["ml-compose", *sys.argv[1:]])
+        print_cli_error(
+            "operation requires elevated privileges",
+            detail=f"cannot access {ex.filename}" if getattr(ex, "filename", None) else str(ex),
+            hint="run this command via sudo",
+            example=example,
+        )
+        maybe_print_debug_traceback()
+        sys.exit(1)
+    except Exception as ex:
+        print_unexpected_error(ex)
+        maybe_print_debug_traceback()
+        sys.exit(1)

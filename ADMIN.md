@@ -2,9 +2,10 @@
 
 Russian version: `ADMIN.ru.md`  
 User guide: `README.md`  
+ML user quick start: `ML_USERS.md`  
 Russian user guide: `README.ru.md`
 
-This guide describes how to install `ml-compose` so users can launch ML
+This guide describes how to install `ml-compose` so users can run ML
 containers without being added to the `docker` group.
 
 The intended model is:
@@ -85,8 +86,8 @@ sudo gpasswd -d username docker
 
 ## Sudoers Configuration
 
-Grant access only to the wrapper, not to `docker`, `python3`, or an interactive
-shell.
+Grant sudo access only to `ml-compose`, not to `docker`, `python3`, or an
+interactive shell.
 
 Create a sudoers snippet:
 
@@ -123,14 +124,60 @@ sudo ln -s /usr/lib/wsl/lib/nvidia-smi /usr/local/bin/nvidia-smi
 This is convenient when you do not want to widen `secure_path`.
 
 If `sudo ml-compose gpu-status` or `sudo ml-compose up --gpu ...` says no GPU
-backend was detected while plain `nvidia-smi` works for the user, this is the
-first thing to check.
+backend was detected while plain `nvidia-smi` works for the user, check this
+first.
 
 If the group does not exist yet:
 
 ```bash
 sudo groupadd mlusers
 sudo usermod -aG mlusers username
+```
+
+## Creating ML Users
+
+Example for a user `alice`.
+
+Create the account, home directory, and interactive shell:
+
+```bash
+sudo useradd -m -s /bin/bash alice
+sudo passwd alice
+sudo usermod -aG mlusers alice
+sudo mkdir -p /home/alice
+sudo chown alice:alice /home/alice
+sudo chmod 0755 /home/alice
+```
+
+Install basic interactive shell support:
+
+```bash
+sudo apt -y install bash bash-completion
+```
+
+Copy default shell config if needed:
+
+```bash
+sudo cp /etc/skel/.bashrc /home/alice/ 2>/dev/null || true
+sudo cp /etc/skel/.profile /home/alice/ 2>/dev/null || true
+sudo chown alice:alice /home/alice/.bashrc /home/alice/.profile 2>/dev/null || true
+```
+
+Copy the ML user quick-start note into the user's home:
+
+```bash
+sudo cp /opt/ml-compose/ML_USERS.md /home/alice/
+sudo cp /opt/ml-compose/ML_USERS.ru.md /home/alice/
+sudo chown alice:alice /home/alice/ML_USERS.md /home/alice/ML_USERS.ru.md
+```
+
+Verify:
+
+```bash
+getent passwd alice
+id alice
+ls -ld /home/alice
+sudo -u alice -H bash -lc 'echo $SHELL; pwd'
 ```
 
 ## Policy Management
@@ -160,7 +207,7 @@ On GPU-capable hosts, as root:
 sudo ml-compose gpu-status
 ```
 
-On CPU-only hosts, use a generic wrapper check instead:
+On CPU-only hosts, use a generic `ml-compose` check instead:
 
 ```bash
 sudo ml-compose images -a
@@ -197,5 +244,5 @@ sudo ml-compose down
 - `up` can run without `--gpu`; GPU lock files are created only when `--gpu` or `-g` is used
 - the wrapper auto-detects standard Compose filenames if `-f` is not provided
 - lock files are stored under `/opt/ml-compose/lock/`
-- for named projects, operators should use the same `-p/--project-name` across
-  `up`, `ps`, `logs`, and `down`
+- for named projects, use the same `-p/--project-name` across `up`, `ps`,
+  `logs`, and `down`; this is standard Compose behavior

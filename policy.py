@@ -4,7 +4,7 @@ from pathlib import Path
 
 import yaml
 
-from common import is_under, resolve_mount_source, user_home
+from common import exit_cli_error, is_under, resolve_mount_source, user_home
 
 OWNER_LABEL = "ml.owner"
 PROJECT_LABEL = "ml.project"
@@ -77,22 +77,25 @@ DOCKER_SOCK_PATHS = {"/var/run/docker.sock", "/run/docker.sock"}
 def _validate_policy_types(policy: dict, source_name: str):
     for key in BOOLEAN_POLICY_DEFAULTS:
         if key in policy and not isinstance(policy[key], bool):
-            raise SystemExit(
-                f"ERROR: policy '{source_name}' key '{key}' must be a boolean"
+            exit_cli_error(
+                "policy file contains an invalid value",
+                detail=f"policy '{source_name}' key '{key}' must be a boolean",
             )
 
     for key in LIST_POLICY_KEYS:
         if key in policy and not isinstance(policy[key], list):
-            raise SystemExit(
-                f"ERROR: policy '{source_name}' key '{key}' must be a list"
+            exit_cli_error(
+                "policy file contains an invalid value",
+                detail=f"policy '{source_name}' key '{key}' must be a list",
             )
 
     for key in LIST_POLICY_KEYS:
         if key not in policy:
             continue
         if not all(isinstance(item, str) for item in policy[key]):
-            raise SystemExit(
-                f"ERROR: policy '{source_name}' key '{key}' must contain only strings"
+            exit_cli_error(
+                "policy file contains an invalid value",
+                detail=f"policy '{source_name}' key '{key}' must contain only strings",
             )
 
 
@@ -131,21 +134,29 @@ def load_policy(policy_path: Path | None) -> dict:
         with open(policy_path, "r", encoding="utf-8") as f:
             loaded = yaml.safe_load(f) or {}
     except Exception as ex:
-        raise SystemExit(f"ERROR: failed to load policy file '{policy_path}': {ex}")
+        exit_cli_error(
+            "failed to load policy file",
+            detail=f"{policy_path}: {ex}",
+        )
 
     if not isinstance(loaded, dict):
-        raise SystemExit(f"ERROR: policy file '{policy_path}' must contain a YAML mapping")
+        exit_cli_error(
+            "policy file is invalid",
+            detail=f"{policy_path} must contain a YAML mapping",
+        )
 
     unknown_keys = sorted(set(loaded) - SUPPORTED_POLICY_KEYS)
     if unknown_keys:
-        raise SystemExit(
-            f"ERROR: policy file '{policy_path}' contains unsupported keys: {', '.join(unknown_keys)}"
+        exit_cli_error(
+            "policy file contains unsupported keys",
+            detail=f"{policy_path}: {', '.join(unknown_keys)}",
         )
 
     missing_keys = sorted(LIST_POLICY_KEYS - set(loaded))
     if missing_keys:
-        raise SystemExit(
-            f"ERROR: policy file '{policy_path}' is missing required keys: {', '.join(missing_keys)}"
+        exit_cli_error(
+            "policy file is missing required keys",
+            detail=f"{policy_path}: {', '.join(missing_keys)}",
         )
 
     # Policy mode: apply strict-ish boolean defaults, but take all list-driven

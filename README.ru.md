@@ -1,24 +1,25 @@
 # ml-compose
 
 English version: `README.md`  
+Памятка для ML-пользователей: `ML_USERS.ru.md`  
 Инструкция для администратора: `ADMIN.ru.md`  
 English administrator guide: `ADMIN.md`
 
-`ml-compose` — это более безопасный враппер вокруг `docker compose` для ML-задач.
+`ml-compose` — более безопасная обертка над `docker compose` для ML-задач.
 
-Он валидирует итоговую Compose-конфигурацию перед запуском, применяет локальную
+Он проверяет итоговую Compose-конфигурацию перед запуском, применяет локальную
 policy, выставляет переменные окружения для GPU, добавляет служебные labels и
-ведёт lock/state файлы GPU, чтобы уменьшить число случайных конфликтов между
+ведет lock- и state-файлы GPU, чтобы уменьшить число случайных конфликтов между
 проектами.
 
 ## Что делает
 
 - валидирует результат `docker compose config`, а не только исходный YAML
 - поддерживает несколько Compose-файлов через `-f/--file`
-- поддерживает GPU backend'ы `auto`, `nvidia` и `amd`
-- выставляет GPU env vars в сервисы
+- поддерживает GPU-backend'ы `auto`, `nvidia` и `amd`
+- выставляет переменные окружения GPU в сервисы
 - добавляет labels с владельцем, проектом и выбранными GPU
-- не даёт двум проектам одновременно занять одну и ту же GPU через lock/state файлы
+- не дает двум проектам одновременно занять одну и ту же GPU через lock- и state-файлы
 - загружает policy из `compose-policy.yml`, если файл есть
 
 ## Требования
@@ -32,27 +33,27 @@ policy, выставляет переменные окружения для GPU,
 
 ## Файлы
 
-- `ml-compose.py`: основной entrypoint и orchestration
+- `ml-compose.py`: основная точка входа и оркестрация
 - `compose_cli.py`: разбор compose-аргументов
 - `compose_runtime.py`: `docker compose config` и временный Compose-файл
-- `policy.py`: загрузка policy, валидация, labels, GPU env injection
-- `gpu_backend.py`: определение NVIDIA/AMD backend и GPU metadata
-- `gpu_locks.py`: guard locks и state lock lifecycle
+- `policy.py`: загрузка policy, валидация, labels, настройка окружения GPU
+- `gpu_backend.py`: определение NVIDIA/AMD backend и сведения о GPU
+- `gpu_locks.py`: guard-lock-файлы и жизненный цикл state lock-файлов
 - `compose-policy.yml`: опциональный локальный policy-файл
 
 ## Рекомендуемая структура установки
 
-Для self-contained системной установки:
+Для автономной системной установки:
 
 - каталог приложения: `/opt/ml-compose/`
-- launcher: `/usr/local/bin/ml-compose`
+- исполняемый файл: `/usr/local/bin/ml-compose`
 - policy-файл: `/opt/ml-compose/compose-policy.yml`
-- каталоги локов:
+- каталоги lock-файлов:
   - `/opt/ml-compose/lock/state/`
   - `/opt/ml-compose/lock/guard/`
 
-Каталог приложения должен принадлежать `root:root` и не быть writable для
-обычных пользователей.
+Каталог приложения должен принадлежать `root:root` и не должен быть доступен
+на запись обычным пользователям.
 
 ## Использование
 
@@ -71,6 +72,8 @@ python3 ml-compose.py up
 - `compose.yaml`
 
 ### Типичные команды
+
+Опции `--gpu` и `-g` управляют выделением GPU для проекта.
 
 Запуск простого проекта без выделения GPU и без GPU-блокировок:
 
@@ -96,7 +99,7 @@ python3 ml-compose.py up --gpu 0
 python3 ml-compose.py up --gpu 0,1
 ```
 
-Взять все GPU выбранного backend'а:
+Использовать все GPU выбранного backend:
 
 ```bash
 python3 ml-compose.py up --gpu all --gpu-backend auto
@@ -105,19 +108,19 @@ python3 ml-compose.py up --gpu all --gpu-backend auto
 Если `--gpu` не указан, или передан `-g none`, `up` ведёт себя как обычный
 запуск Compose: не выставляет GPU env vars и не создаёт GPU-lock'и.
 
-Короткие алиасы для wrapper-опций:
+Короткие алиасы для опций `ml-compose`:
 
 - `-g` для `--gpu`
 - `-G` для `--gpu-backend`
 
-Запуск с явным именем проекта, чтобы потом тем же именем пользоваться в `down`,
-`ps` и `logs`:
+Запуск с явным именем проекта, чтобы потом использовать то же имя в `down`,
+`ps` и `logs`. Это обычное поведение Compose, а не особенность `ml-compose`:
 
 ```bash
 python3 ml-compose.py up --gpu 0 -p train-exp-01 -f compose.yml
 ```
 
-Использование нескольких Compose-файлов, например base + override:
+Использование нескольких Compose-файлов, например базового и override-файла:
 
 ```bash
 python3 ml-compose.py up --gpu 0 -f compose.yml -f compose.override.yml
@@ -135,7 +138,7 @@ python3 ml-compose.py build
 python3 ml-compose.py build --no-cache
 ```
 
-Подтянуть последние версии образов без запуска контейнеров:
+Загрузить последние версии образов без запуска контейнеров:
 
 ```bash
 python3 ml-compose.py pull
@@ -183,26 +186,27 @@ python3 ml-compose.py logs -f -p train-exp-01
 python3 ml-compose.py gpu-status
 ```
 
-Почистить stale state locks, которые больше не принадлежат живому проекту:
+Удалить устаревшие state lock-файлы, которые больше не относятся к живому проекту:
 
 ```bash
 python3 ml-compose.py reconcile-locks
 ```
 
-По умолчанию имя проекта генерируется автоматически из текущей директории и
-пользователя. При необходимости его можно переопределить через
+По умолчанию имя проекта автоматически формируется из текущего каталога и
+имени пользователя, а затем приводится к виду, совместимому с Compose. При
+необходимости его можно переопределить через
 `-p/--project-name`.
 
 ## Как работает запуск
 
-1. Разбирает аргументы враппера, такие как `--gpu` и `--gpu-backend`.
+1. Разбирает аргументы `ml-compose`, такие как `--gpu` и `--gpu-backend`.
 2. Разбирает compose-аргументы, такие как `-f`, `--env-file`, `--profile` и `-p`.
 3. Получает итоговую конфигурацию через `docker compose config`.
-4. Загружает policy, если она доступна, и валидирует итоговый документ.
-5. Для `up` всегда выставляет служебные labels; GPU env vars добавляет только если через `-g/--gpu` выбраны GPU.
-6. Захватывает GPU guard locks и пишет state lock файлы только если через `-g/--gpu` выбраны GPU.
+4. Загружает policy, если она доступна, и проверяет итоговый документ.
+5. Для `up` всегда добавляет служебные labels; переменные окружения GPU добавляет только если через `-g/--gpu` выбраны GPU.
+6. Захватывает guard-lock-файлы GPU и записывает state lock-файлы только если через `-g/--gpu` выбраны GPU.
 7. Запускает `docker compose`.
-8. После старта контейнеров помечает локи как активные только для запусков с GPU-блокировкой.
+8. После запуска контейнеров помечает локи как активные только для запусков с GPU-блокировкой.
 
 ## Поддерживаемые действия
 
@@ -226,7 +230,7 @@ python3 ml-compose.py reconcile-locks
 
 Выбор backend'а:
 
-- `auto`: предпочитает NVIDIA, если доступен `nvidia-smi`, иначе AMD, если найден runtime
+- `auto`: выбирает NVIDIA, если доступен `nvidia-smi`, иначе AMD, если найдена подходящая среда выполнения
 - `nvidia`: требует `nvidia-smi`
 - `amd`: требует обнаружения AMD runtime
 
@@ -235,16 +239,16 @@ python3 ml-compose.py reconcile-locks
 - NVIDIA: `CUDA_VISIBLE_DEVICES`
 - AMD: `HIP_VISIBLE_DEVICES`, `ROCR_VISIBLE_DEVICES`
 
-Пользовательские индексы GPU локальны для backend'а. Например, `--gpu 0`
+Пользовательские индексы GPU локальны для backend. Например, `--gpu 0`
 означает `NVIDIA GPU 0` при `--gpu-backend nvidia` и `AMD GPU 0` при
 `--gpu-backend amd`.
 
-Внутренние lock IDs namespaced, например:
+Внутренние lock ID имеют префикс backend, например:
 
 - `nvidia:0`
 - `amd:0`
 
-Это нужно, чтобы не было коллизий на mixed-host.
+Это нужно, чтобы избежать конфликтов на хостах со смешанной конфигурацией.
 
 ## Policy
 
@@ -273,31 +277,31 @@ python3 ml-compose.py reconcile-locks
 - `allowed_abs_mount_prefixes`
 - `forbid_other_user_homes`
 
-Валидация выполняется по уже отрендеренному Compose-документу, поэтому
-относительные пути, merge нескольких файлов и Compose expansion проверяются
-в том виде, в котором их реально видит Docker.
+Проверка выполняется по уже отрендеренному Compose-документу, поэтому
+относительные пути, объединение нескольких файлов и подстановка переменных
+Compose проверяются в том виде, в котором их реально видит Docker.
 
-Без `compose-policy.yml` `ml-compose` всё равно работает. В этом режиме он
+Без `compose-policy.yml` `ml-compose` все равно работает. В этом режиме он
 использует:
 
-- permissive встроенные дефолты для boolean policy-флагов
-- permissive fallback mount/device rules с широким доступом к host
+- встроенные мягкие значения по умолчанию для булевых policy-флагов
+- fallback-правила для mount/device с широким доступом к хосту
 
-На практике в no-config режиме в основном сохраняются:
+На практике в режиме без `compose-policy.yml` в основном сохраняются:
 
-- Compose rendering и validation flow
-- GPU environment injection
-- owner/project/GPU labels
-- GPU lock и state management
+- рендеринг и проверка Compose-конфигурации
+- настройка окружения GPU
+- labels владельца, проекта и GPU
+- управление GPU lock- и state-файлами
 
-В этом режиме policy enforcement намеренно слабый, поэтому если тебе нужны
+В этом режиме ограничения policy намеренно ослаблены, поэтому, если нужны
 реальные mount/device ограничения, используй `compose-policy.yml`.
 
 Когда `compose-policy.yml` есть:
 
-- boolean flags по-прежнему могут опускаться и добираются из code defaults
-- mount/device list rules должны быть явно заданы в YAML
-- YAML становится источником истины для list-based правил
+- boolean flags по-прежнему можно опускать, и тогда будут использованы значения по умолчанию из кода
+- правила для списков mount/device должны быть явно заданы в YAML
+- YAML-файл становится основным источником этих list-based правил
 
 ## Labels и lock-файлы
 
@@ -307,21 +311,21 @@ python3 ml-compose.py reconcile-locks
 - `ml.project`
 - `ml.gpu`
 
-В рекомендуемой install-схеме GPU coordination использует два типа файлов под
-`/opt/ml-compose/lock`:
+В рекомендуемой схеме установки для координации GPU используются два типа
+файлов в `/opt/ml-compose/lock`:
 
-- `guard/`: короткоживущие file locks на время переходов состояния
+- `guard/`: короткоживущие lock-файлы на время переходов состояния
 - `state/`: JSON-файлы с информацией о владельце и состоянии активации
 
-`reconcile-locks` удаляет нечитаемые или stale state files, которые больше не
-связаны с живыми контейнерами.
+`reconcile-locks` удаляет нечитаемые или устаревшие state-файлы, которые больше
+не связаны с живыми контейнерами.
 
 ## Важные замечания
 
 - `up` работает и без `--gpu`; GPU-блокировки включаются только если указан `--gpu` или `-g`
 - `--gpu` и `--gpu-backend` игнорируются для не-`up` действий, кроме `gpu-status`
-- Compose-файлы должны находиться внутри текущей рабочей директории
-- Рабочая директория должна быть внутри home текущего пользователя или `/srv/ml/users/<user>`
+- Compose-файлы должны находиться в текущей рабочей директории
+- рабочий каталог должен находиться внутри домашнего каталога пользователя или `/srv/ml/users/<user>`
 
 ## Пример policy
 
